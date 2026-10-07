@@ -1,0 +1,56 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Proyecto
+
+Clientify: MVP de fidelización por puntos para barberías. Backend Flask + SQLite (`backend/`), frontend React 19 + Vite + MUI 7 (`frontend/`), base de datos en `data/clientify.db`. Todo el producto (UI, mensajes de error de la API, rutas del front, comentarios) está en español; mantenerlo así.
+
+## Comandos
+
+```bash
+# Backend (http://localhost:5000/api) — requiere backend/.env (copiar de .env.example)
+cd backend && pip install -r requirements.txt
+python app.py
+python seed_demo.py          # 10 clientes de demo; no hace nada si ya hay clientes
+
+# Frontend (http://localhost:5173) — Vite hace proxy de /api al backend
+cd frontend && npm install
+npm run dev
+npm run build                # genera frontend/dist
+
+# Todo en Docker (http://localhost:8080)
+docker compose up --build -d
+docker compose exec backend python seed_demo.py
+```
+
+No hay tests, linter ni migraciones configurados.
+
+## Arquitectura
+
+### Backend: un solo archivo, `backend/app.py`
+- SQLite con `sqlite3` crudo (sin ORM). El esquema está en la constante `SCHEMA` y `init_db()` corre **al importar el módulo**: crea las tablas, carga `DEFAULT_SETTINGS`, el admin inicial y los beneficios de ejemplo. No hay migraciones: un cambio de esquema en una base existente hay que hacerlo a mano (`CREATE TABLE IF NOT EXISTS` no altera tablas que ya existen).
+- **`add_points()` es la única vía para mover puntos**: actualiza `users.points` y escribe en `transactions` (historial). Nunca modificar el saldo directamente.
+- Las reglas del programa (bono de bienvenida, bonos de referido, puntos por dólar, nombre del negocio) viven en la tabla `settings` y se leen con `setting()` / `setting_int()`; no hardcodearlas.
+- Auth por cookie de sesión de Flask (`session["user_id"]`), firmada con `SECRET_KEY`. Los endpoints se protegen con los decoradores `admin_required` / `client_required`. Dos roles: `admin` y `client`.
+- Canjes: `redeem` genera un código `C-XXXXXX` y descuenta puntos y stock; el admin luego lo marca `entregar` o `cancelar` (cancelar devuelve puntos y stock).
+- Errores: `err(msg, status)` responde `{"error": msg}`; el frontend muestra ese texto al usuario.
+- Si existe `frontend/dist`, la ruta catch-all `spa()` sirve la webapp (modo "un solo servidor").
+
+### Configuración
+- `backend/.env` se carga con `python-dotenv`: `SECRET_KEY`, `FLASK_DEBUG`, `PORT`, `CLIENTIFY_DB`, `ADMIN_EMAIL`, `ADMIN_PASSWORD` (solo se usan al crear la base por primera vez), `DEMO_PASSWORD`.
+- `CLIENTIFY_DB` por defecto es `../data/clientify.db` relativo a `backend/`.
+- `frontend/.env`: `VITE_API_URL` (base de la API en el navegador, por defecto `/api`) y `API_PROXY_TARGET` (destino del proxy de `npm run dev`).
+- Los `.env` no se versionan; las plantillas son los `.env.example`.
+
+### Frontend
+- `src/api.js` es el único cliente HTTP (`fetch` con `credentials: 'include'`); lanza `Error` con el mensaje de la API y `e.status`.
+- `hooks/useApi.js` para cargas GET (`{ data, loading, error, reload }`); `context/AuthContext` mantiene la sesión vía `/api/me`; `context/ToastContext` expone `notify(msg, severity)`.
+- Rutas en `App.jsx`: `/login`, `/registro?ref=CODIGO`, `/mi-cuenta` (cliente) y `/admin/*` (admin), protegidas por `RequireRole`.
+- Tema y paleta "Trust & Reward" en `src/theme.js`; usar sus colores en vez de valores sueltos.
+
+### Mismo origen (importante)
+La cookie de sesión es `SameSite=Lax` y el backend **no tiene CORS**. Todo funciona porque el front y la API comparten origen: en desarrollo vía el proxy de Vite, en Docker vía Nginx (`frontend/nginx.conf` redirige `/api/` a `backend:8000`). Servir la API en otro dominio requiere agregar CORS con credenciales.
+
+### Docker
+`docker-compose.yml` levanta `backend` (Gunicorn con `--preload` para que `init_db()` corra una sola vez, no expuesto afuera) y `frontend` (build de Vite servido por Nginx en `${APP_PORT:-8080}`). `./data` se monta en `/data` del backend.

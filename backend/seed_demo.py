@@ -1,4 +1,5 @@
 """Carga datos de demostración (clientes, visitas, referidos y canjes). Uso: python seed_demo.py"""
+import os
 import random
 from datetime import datetime, timedelta
 
@@ -23,7 +24,7 @@ with A.app.app_context():
         cur = db.execute(
             "INSERT INTO users (name, email, phone, password_hash, role, referral_code, referred_by,"
             " created_at) VALUES (?,?,?,?, 'client', ?,?,?)",
-            (name, email, f"09{random.randint(10000000, 99999999)}", A.generate_password_hash("123456"),
+            (name, email, f"09{random.randint(10000000, 99999999)}", A.generate_password_hash(os.environ.get("DEMO_PASSWORD", "123456")),
              A.unique_code(db, "users", "referral_code"), ref, day.strftime("%Y-%m-%d %H:%M")))
         uid = cur.lastrowid
         ids.append(uid)

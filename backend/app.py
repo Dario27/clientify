@@ -9,15 +9,18 @@ import sqlite3
 from datetime import datetime, timedelta
 from functools import wraps
 
+from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.environ.get("CLIENTIFY_DB", os.path.join(BASE_DIR, "clientify.db"))
+load_dotenv(os.path.join(BASE_DIR, ".env"))
+DB_PATH = os.environ.get("CLIENTIFY_DB") or os.path.join(BASE_DIR, "..", "data", "clientify.db")
+os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
 DIST_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "frontend", "dist"))
 
 app = Flask(__name__, static_folder=None)
-app.secret_key = os.environ.get("SECRET_KEY", "cambia-esta-clave-en-produccion")
+app.secret_key = os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 app.config.update(SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Lax")
 
 DEFAULT_SETTINGS = {
@@ -161,7 +164,8 @@ def init_db():
         db.execute(
             "INSERT INTO users (name, email, phone, password_hash, role, referral_code, created_at)"
             " VALUES (?,?,?,?,?,?,?)",
-            ("Administrador", "admin@barberia.com", "", generate_password_hash("admin123"),
+            ("Administrador", os.environ.get("ADMIN_EMAIL", "admin@barberia.com"), "",
+             generate_password_hash(os.environ.get("ADMIN_PASSWORD", "admin123")),
              "admin", unique_code(db, "users", "referral_code"), now()))
     if not db.execute("SELECT 1 FROM rewards").fetchone():
         for name, desc, cat, cost, stock in [
@@ -623,4 +627,5 @@ def spa(path):
 init_db()
 
 if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000)
+    app.run(debug=os.environ.get("FLASK_DEBUG", "1") == "1", host="0.0.0.0",
+            port=int(os.environ.get("PORT", "5000")))

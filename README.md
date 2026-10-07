@@ -5,7 +5,9 @@
 
 ```
 clientify/
-├── backend/            API Flask (app.py), seed_demo.py, clientify.db (se crea solo)
+├── docker-compose.yml  Levanta frontend (Nginx) + backend (Gunicorn)
+├── data/               clientify.db (se crea solo; no se versiona)
+├── backend/            API Flask (app.py), seed_demo.py
 └── frontend/           React + MUI
     └── src/
         ├── theme.js    Paleta y tema MUI
@@ -23,18 +25,37 @@ Necesitas dos terminales.
 # 1) Backend  →  http://localhost:5000/api
 cd backend
 pip install -r requirements.txt
+cp .env.example .env       # y completa SECRET_KEY (ver comentario dentro)
 python app.py
 python seed_demo.py        # opcional: carga 10 clientes de demo (contraseña 123456)
 
 # 2) Frontend →  http://localhost:5173
 cd frontend
+cp .env.example .env       # opcional: VITE_API_URL y API_PROXY_TARGET
 npm install
 npm run dev
 ```
 
 En desarrollo, Vite redirige `/api` al backend, así que la cookie de sesión funciona sin configurar CORS.
 
-**Admin por defecto:** `admin@barberia.com` / `admin123`
+**Configuración:** el backend lee `backend/.env` (no se versiona; la plantilla es `backend/.env.example`).
+Ahí van `SECRET_KEY`, el puerto y las credenciales de prueba (`ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_PASSWORD`).
+El admin se crea con esos valores solo la primera vez que se inicializa la base.
+
+**Admin por defecto:** `admin@barberia.com` / `admin123` (configurable en `.env`)
+
+## Docker (todo con un solo compose)
+
+```bash
+cp backend/.env.example backend/.env   # completa SECRET_KEY y ADMIN_PASSWORD
+docker compose up --build -d           # webapp + API en http://localhost:8080
+docker compose exec backend python seed_demo.py   # opcional: datos de demo
+```
+
+- `frontend`: Nginx sirve la webapp compilada y redirige `/api` al backend (mismo origen, sin CORS).
+- `backend`: Flask con Gunicorn; no se publica afuera, solo lo ve Nginx.
+- `data/`: carpeta montada en el contenedor con la base `clientify.db`; sobrevive a rebuilds.
+- Para cambiar el puerto: `APP_PORT=9000 docker compose up -d`.
 
 ## Producción simple (un solo servidor)
 
@@ -76,7 +97,7 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 
 ## Pendiente antes de producción
 
-- Cambiar `SECRET_KEY` (variable de entorno) y la contraseña del admin.
+- Definir `SECRET_KEY` y `ADMIN_PASSWORD` propios en el `.env` del servidor y poner `FLASK_DEBUG=0`.
 - Agregar CSRF, límite de intentos de login y recuperación de contraseña.
 - Anti-fraude de referidos, por ejemplo entregar el bono tras la primera visita pagada.
 - Usar gunicorn/waitress con HTTPS y migrar a PostgreSQL cuando crezca.
