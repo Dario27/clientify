@@ -8,6 +8,8 @@ import DashboardRounded from '@mui/icons-material/DashboardRounded'
 import PeopleAltRounded from '@mui/icons-material/PeopleAltRounded'
 import QrCodeScannerRounded from '@mui/icons-material/QrCodeScannerRounded'
 import NotificationsActiveRounded from '@mui/icons-material/NotificationsActiveRounded'
+import EventRounded from '@mui/icons-material/EventRounded'
+import ContentCutRounded from '@mui/icons-material/ContentCutRounded'
 import RedeemRounded from '@mui/icons-material/RedeemRounded'
 import CardGiftcardRounded from '@mui/icons-material/CardGiftcardRounded'
 import TuneRounded from '@mui/icons-material/TuneRounded'
@@ -23,11 +25,13 @@ import { initials } from '../utils'
 const WIDTH = 248
 const NAV = [
   { to: '/admin', label: 'Resumen', icon: <DashboardRounded />, end: true },
+  { to: '/admin/agenda', label: 'Agenda', icon: <EventRounded /> },
   { to: '/admin/escanear', label: 'Escanear', icon: <QrCodeScannerRounded /> },
   { to: '/admin/clientes', label: 'Clientes', icon: <PeopleAltRounded /> },
   { to: '/admin/reactivar', label: 'Reactivar', icon: <NotificationsActiveRounded /> },
   { to: '/admin/canjes', label: 'Canjes', icon: <RedeemRounded /> },
   { to: '/admin/beneficios', label: 'Beneficios', icon: <CardGiftcardRounded /> },
+  { to: '/admin/servicios', label: 'Servicios', icon: <ContentCutRounded /> },
   { to: '/admin/configuracion', label: 'Configuración', icon: <TuneRounded /> },
 ]
 

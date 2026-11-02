@@ -10,6 +10,9 @@ import Dashboard from './pages/admin/Dashboard'
 import Clients from './pages/admin/Clients'
 import Scan from './pages/admin/Scan'
 import Reactivar from './pages/admin/Reactivar'
+import Agenda from './pages/admin/Agenda'
+import Services from './pages/admin/Services'
+import Turnos from './pages/client/Turnos'
 import ClientDetail from './pages/admin/ClientDetail'
 import Redemptions from './pages/admin/Redemptions'
 import Rewards from './pages/admin/Rewards'
@@ -39,15 +42,18 @@ export default function App() {
       <Route path="/registro" element={user ? <Navigate to={home(user)} replace /> : <Register />} />
       <Route element={<RequireRole role="client"><ClientLayout /></RequireRole>}>
         <Route path="/mi-cuenta" element={<Account />} />
+        <Route path="/turnos" element={<Turnos />} />
       </Route>
       <Route path="/admin" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
         <Route index element={<Dashboard />} />
+        <Route path="agenda" element={<Agenda />} />
         <Route path="escanear" element={<Scan />} />
         <Route path="reactivar" element={<Reactivar />} />
         <Route path="clientes" element={<Clients />} />
         <Route path="clientes/:id" element={<ClientDetail />} />
         <Route path="canjes" element={<Redemptions />} />
         <Route path="beneficios" element={<Rewards />} />
+        <Route path="servicios" element={<Services />} />
         <Route path="configuracion" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to={user ? home(user) : '/login'} replace />} />

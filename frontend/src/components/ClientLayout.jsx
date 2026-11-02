@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
 import { AppBar, Avatar, Box, Button, Container, Toolbar, Typography } from '@mui/material'
 import LogoutRounded from '@mui/icons-material/LogoutRounded'
 import KeyRounded from '@mui/icons-material/KeyRounded'
+import EventRounded from '@mui/icons-material/EventRounded'
 import { useAuth } from '../context/AuthContext'
 import useApi from '../hooks/useApi'
 import Logo from './Logo'
@@ -20,6 +21,8 @@ export default function ClientLayout() {
           <Toolbar disableGutters sx={{ gap: 2 }}>
             <Logo subtitle={pub?.business_name} />
             <Box sx={{ flex: 1 }} />
+            <Button component={NavLink} to="/mi-cuenta" color="inherit" size="small" sx={{ '&.active': { color: 'primary.main' } }}>Inicio</Button>
+            <Button component={NavLink} to="/turnos" color="inherit" size="small" startIcon={<EventRounded />} sx={{ '&.active': { color: 'primary.main' } }}>Turnos</Button>
             <Box sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 1 }}>
               <Avatar sx={{ width: 30, height: 30, fontSize: 13, fontWeight: 700, bgcolor: 'primary.main', color: 'primary.contrastText' }}>
                 {initials(user?.name)}

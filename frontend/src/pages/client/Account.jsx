@@ -18,7 +18,9 @@ import StatusChip from '../../components/StatusChip'
 import EmptyState from '../../components/EmptyState'
 import ClientQr from '../../components/ClientQr'
 import CakeRounded from '@mui/icons-material/CakeRounded'
-import { fmtDate, initials } from '../../utils'
+import EventRounded from '@mui/icons-material/EventRounded'
+import { Link as RouterLink } from 'react-router-dom'
+import { fmtDay, fmtDate, initials } from '../../utils'
 import { brand } from '../../theme'
 
 function PointsHero({ user, rewards }) {
@@ -196,7 +198,7 @@ export default function Account() {
   if (loading) return <Stack spacing={2}><Skeleton variant="rounded" height={180} /><Skeleton variant="rounded" height={260} /></Stack>
   if (error) return <Alert severity="error">{error}</Alert>
 
-  const { user, rewards, history, redemptions, referrals, settings, birthday_gift: gift } = data
+  const { user, rewards, history, redemptions, referrals, settings, birthday_gift: gift, next_appointment: next } = data
   const pending = redemptions.filter((r) => r.status === 'pendiente')
 
   const doRedeem = async () => {
@@ -220,6 +222,14 @@ export default function Account() {
           ¡Feliz cumpleaños, {user.name.split(' ')[0]}! Te regalamos <strong>{gift} pts</strong>.
         </Alert>
       )}
+      <Alert
+        icon={<EventRounded />} severity="info" variant="outlined" sx={{ mb: 3, alignItems: 'center' }}
+        action={<Button component={RouterLink} to="/turnos" size="small" color="inherit">{next ? 'Ver turnos' : 'Reservar'}</Button>}
+      >
+        {next
+          ? <>Tu próximo turno: <strong>{fmtDay(next.start_at.slice(0, 10))} a las {next.start_at.slice(11)}</strong> · {next.service_name}</>
+          : 'Reserva tu próximo turno online, sin esperas.'}
+      </Alert>
       {!user.birthday && <BirthdayPrompt bonus={settings.birthday_bonus} onSaved={reload} />}
 
       {pending.length > 0 && (
