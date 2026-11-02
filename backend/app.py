@@ -4,10 +4,12 @@ Flask + SQLite. Ejecutar:  python app.py   ->  API en http://localhost:5000/api
 Si existe ../frontend/dist (npm run build), también sirve la webapp React.
 """
 import os
+import re
 import secrets
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
@@ -29,8 +31,16 @@ DEFAULT_SETTINGS = {
     "referral_bonus_referrer": "10",
     "referral_bonus_referred": "5",
     "points_per_dollar": "1",
+    "birthday_bonus": "10",
+    "inactive_days": "45",
+    "whatsapp_country_code": "593",
+    "reactivation_message": "Hola {nombre}, te extrañamos en {negocio}. Tienes {puntos} puntos esperándote: "
+                            "pasa esta semana y cámbialos por un beneficio.",
+    "birthday_message": "¡Feliz cumpleaños, {nombre}! De parte de {negocio} te regalamos {bono} puntos. "
+                        "Pasa por la barbería a celebrarlo.",
 }
-INT_SETTINGS = [k for k in DEFAULT_SETTINGS if k != "business_name"]
+TEXT_SETTINGS = ["business_name", "reactivation_message", "birthday_message"]
+INT_SETTINGS = [k for k in DEFAULT_SETTINGS if k not in TEXT_SETTINGS]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -43,6 +53,7 @@ CREATE TABLE IF NOT EXISTS users (
     points INTEGER NOT NULL DEFAULT 0,
     referral_code TEXT UNIQUE,
     referred_by INTEGER REFERENCES users(id),
+    birthday TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rewards (
@@ -151,13 +162,65 @@ def add_points(db, user_id, points, type_, description, created_by=None):
 
 def public_user(u):
     return {k: u[k] for k in ("id", "name", "email", "phone", "role", "points",
-                              "referral_code", "created_at")}
+                              "referral_code", "birthday", "created_at")}
+
+
+def clean_birthday(value):
+    """Devuelve 'YYYY-MM-DD', '' si viene vacío, o None si la fecha no es válida."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    try:
+        d = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return value if date(1900, 1, 1) <= d <= date.today() else None
+
+
+def grant_birthday_bonus(db, u, created_by=None):
+    """Regala los puntos de cumpleaños, una sola vez por año. Devuelve los puntos otorgados (0 si no aplica)."""
+    bonus = setting_int("birthday_bonus")
+    if bonus <= 0 or not u["birthday"]:
+        return 0
+    year = datetime.now().strftime("%Y")
+    if db.execute("SELECT 1 FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at LIKE ?",
+                  (u["id"], year + "%")).fetchone():
+        return 0
+    add_points(db, u["id"], bonus, "cumpleanos", "Regalo de cumpleaños", created_by)
+    return bonus
+
+
+def whatsapp_url(phone, message):
+    """Enlace wa.me con el mensaje ya escrito, o None si el cliente no tiene un teléfono usable."""
+    digits = re.sub(r"\D", "", phone or "")
+    if digits.startswith("00"):
+        digits = digits[2:]
+    cc = re.sub(r"\D", "", setting("whatsapp_country_code") or "")
+    if not digits:
+        return None
+    if digits.startswith("0"):
+        digits = cc + digits.lstrip("0")
+    elif not (cc and digits.startswith(cc) and len(digits) >= 11) and len(digits) <= 10:
+        digits = cc + digits
+    return f"https://wa.me/{digits}?text={quote(message)}"
+
+
+def render_message(template, client):
+    """Rellena {nombre}, {negocio}, {puntos} y {bono} sin fallar si la plantilla trae otras llaves."""
+    values = {"nombre": (client["name"].split() or [""])[0], "negocio": setting("business_name"),
+              "puntos": client["points"], "bono": setting_int("birthday_bonus")}
+    for k, v in values.items():
+        template = template.replace("{" + k + "}", str(v))
+    return template
 
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    # Migración mínima: bases creadas antes de existir la fecha de cumpleaños.
+    if "birthday" not in [r[1] for r in db.execute("PRAGMA table_info(users)")]:
+        db.execute("ALTER TABLE users ADD COLUMN birthday TEXT")
     for k, v in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
     if not db.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():
@@ -258,6 +321,20 @@ def logout():
     return jsonify({"ok": True})
 
 
+@app.put("/api/profile")
+@client_required
+def update_profile():
+    """El cliente completa o corrige su fecha de cumpleaños."""
+    birthday = clean_birthday(body().get("birthday"))
+    if birthday is None:
+        return err("La fecha de cumpleaños no es válida.")
+    db = get_db()
+    uid = current_user()["id"]
+    db.execute("UPDATE users SET birthday=? WHERE id=?", (birthday or None, uid))
+    db.commit()
+    return jsonify(public_user(db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
+
+
 @app.post("/api/password")
 @login_required
 def change_password():
@@ -286,6 +363,7 @@ def register():
     phone = (d.get("phone") or "").strip()
     password = d.get("password") or ""
     ref_code = (d.get("ref") or "").strip().upper()
+    birthday = clean_birthday(d.get("birthday"))
 
     referrer = None
     if ref_code:
@@ -301,12 +379,15 @@ def register():
         return err("Ya existe una cuenta con ese correo.")
     if ref_code and not referrer:
         return err("El código de referido no es válido.")
+    if birthday is None:
+        return err("La fecha de cumpleaños no es válida.")
 
     cur = db.execute(
         "INSERT INTO users (name, email, phone, password_hash, role, referral_code, referred_by,"
-        " created_at) VALUES (?,?,?,?, 'client', ?,?,?)",
+        " birthday, created_at) VALUES (?,?,?,?, 'client', ?,?,?,?)",
         (name, email, phone, generate_password_hash(password),
-         unique_code(db, "users", "referral_code"), referrer["id"] if referrer else None, now()))
+         unique_code(db, "users", "referral_code"), referrer["id"] if referrer else None,
+         birthday or None, now()))
     uid = cur.lastrowid
     if setting_int("welcome_bonus"):
         add_points(db, uid, setting_int("welcome_bonus"), "bienvenida", "Bono de bienvenida")
@@ -331,7 +412,18 @@ def account():
     db = get_db()
     uid = current_user()["id"]
     u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if u["birthday"] and u["birthday"][5:7] == datetime.now().strftime("%m"):
+        if grant_birthday_bonus(db, u):  # una vez al año, la primera vez que abre la app en su mes
+            db.commit()
+            u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    # El aviso no depende de esta respuesta: la app puede pedir la cuenta varias veces seguidas
+    # (React StrictMode en desarrollo, recargas) y el regalo solo se entrega en la primera.
+    recent = db.execute(
+        "SELECT points FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at >= ?"
+        " ORDER BY id DESC LIMIT 1",
+        (uid, (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M"))).fetchone()
     return jsonify({
+        "birthday_gift": recent["points"] if recent else 0,
         "user": public_user(u),
         "rewards": rows(db.execute("SELECT * FROM rewards WHERE active=1 ORDER BY points_cost")),
         "history": rows(db.execute(
@@ -458,8 +550,11 @@ def admin_client_create():
     phone = (d.get("phone") or "").strip()
     email = (d.get("email") or "").strip().lower()
     password = d.get("password") or ""
+    birthday = clean_birthday(d.get("birthday"))
     if len(name) < 2:
         return err("Ingresa el nombre del cliente.")
+    if birthday is None:
+        return err("La fecha de cumpleaños no es válida.")
     if "@" not in email:
         return err("Ingresa un correo válido.")
     if len(password) < 6:
@@ -470,9 +565,9 @@ def admin_client_create():
         return err("Ya existe un cliente con ese teléfono.")
     code = unique_code(db, "users", "referral_code")
     cur = db.execute(
-        "INSERT INTO users (name, email, phone, password_hash, role, referral_code, created_at)"
-        " VALUES (?,?,?,?, 'client', ?,?)",
-        (name, email, phone, generate_password_hash(password), code, now()))
+        "INSERT INTO users (name, email, phone, password_hash, role, referral_code, birthday, created_at)"
+        " VALUES (?,?,?,?, 'client', ?,?,?)",
+        (name, email, phone, generate_password_hash(password), code, birthday or None, now()))
     uid = cur.lastrowid
     if setting_int("welcome_bonus"):
         add_points(db, uid, setting_int("welcome_bonus"), "bienvenida", "Bono de bienvenida",
@@ -678,13 +773,82 @@ def admin_settings_put():
             continue
         val = str(d[key]).strip()
         if key in INT_SETTINGS and not val.isdigit():
-            return err("Los valores de puntos deben ser enteros ≥ 0.")
-        if key == "business_name" and not val:
-            return err("El nombre del negocio no puede quedar vacío.")
+            return err("Los valores numéricos deben ser enteros ≥ 0.")
+        if key in TEXT_SETTINGS and not val:
+            return err("Los textos de la configuración no pueden quedar vacíos.")
         db.execute("INSERT INTO settings (key, value) VALUES (?,?)"
                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, val))
     db.commit()
     return jsonify(all_settings())
+
+
+# ---------------------------------------------------------------- reactivación y cumpleaños
+@app.get("/api/admin/inactive")
+@admin_required
+def admin_inactive():
+    """Clientes que no vienen hace más de `inactive_days` (sin visitas: desde que se registraron)."""
+    limit = setting_int("inactive_days")
+    template = setting("reactivation_message")
+    today = datetime.now()
+    out = []
+    for c in rows(get_db().execute(
+            "SELECT u.id, u.name, u.phone, u.points, u.created_at,"
+            " (SELECT MAX(created_at) FROM transactions t WHERE t.user_id=u.id AND t.type='visita') AS last_visit"
+            " FROM users u WHERE u.role='client'")):
+        days = (today - datetime.strptime((c["last_visit"] or c["created_at"])[:16], "%Y-%m-%d %H:%M")).days
+        if days < limit:
+            continue
+        out.append({**c, "days": days,
+                    "whatsapp_url": whatsapp_url(c["phone"], render_message(template, c))})
+    out.sort(key=lambda c: c["days"], reverse=True)
+    return jsonify({"days_limit": limit, "clients": out})
+
+
+@app.get("/api/admin/birthdays")
+@admin_required
+def admin_birthdays():
+    """Cumpleaños de los próximos 30 días, con el enlace de saludo y si ya se regaló este año."""
+    db = get_db()
+    today = date.today()
+    template = setting("birthday_message")
+    out = []
+    for c in rows(db.execute(
+            "SELECT id, name, phone, points, birthday FROM users WHERE role='client' AND birthday IS NOT NULL")):
+        month, day = int(c["birthday"][5:7]), int(c["birthday"][8:10])
+        nxt = _birthday_in_year(month, day, today.year)
+        if nxt < today:
+            nxt = _birthday_in_year(month, day, today.year + 1)
+        days = (nxt - today).days
+        if days > 30:
+            continue
+        granted = bool(db.execute(
+            "SELECT 1 FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at LIKE ?",
+            (c["id"], str(today.year) + "%")).fetchone())
+        out.append({**c, "days": days, "granted": granted,
+                    "whatsapp_url": whatsapp_url(c["phone"], render_message(template, c))})
+    out.sort(key=lambda c: c["days"])
+    return jsonify({"bonus": setting_int("birthday_bonus"), "clients": out})
+
+
+def _birthday_in_year(month, day, year):
+    try:
+        return date(year, month, day)
+    except ValueError:  # 29 de febrero en un año no bisiesto
+        return date(year, 3, 1)
+
+
+@app.post("/api/admin/clients/<int:uid>/birthday-gift")
+@admin_required
+def admin_birthday_gift(uid):
+    c = _client_or_404(uid)
+    if not c:
+        return err("Cliente no encontrado.", 404)
+    db = get_db()
+    pts = grant_birthday_bonus(db, c, current_user()["id"])
+    if not pts:
+        return err("No se puede regalar: ya se entregó este año, no tiene cumpleaños cargado o el bono está en 0.")
+    db.commit()
+    return jsonify({"points": pts})
 
 
 # ---------------------------------------------------------------- SPA (build de React)

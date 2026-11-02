@@ -9,6 +9,7 @@ import Account from './pages/client/Account'
 import Dashboard from './pages/admin/Dashboard'
 import Clients from './pages/admin/Clients'
 import Scan from './pages/admin/Scan'
+import Reactivar from './pages/admin/Reactivar'
 import ClientDetail from './pages/admin/ClientDetail'
 import Redemptions from './pages/admin/Redemptions'
 import Rewards from './pages/admin/Rewards'
@@ -42,6 +43,7 @@ export default function App() {
       <Route path="/admin" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
         <Route index element={<Dashboard />} />
         <Route path="escanear" element={<Scan />} />
+        <Route path="reactivar" element={<Reactivar />} />
         <Route path="clientes" element={<Clients />} />
         <Route path="clientes/:id" element={<ClientDetail />} />
         <Route path="canjes" element={<Redemptions />} />

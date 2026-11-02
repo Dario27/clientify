@@ -17,7 +17,7 @@ import StatusChip from '../../components/StatusChip'
 import EmptyState from '../../components/EmptyState'
 import ClientQr from '../../components/ClientQr'
 import ResetPasswordDialog from '../../components/ResetPasswordDialog'
-import { fmtDate, initials, realEmail } from '../../utils'
+import { fmtBirthday, fmtDate, initials, realEmail } from '../../utils'
 import { brand } from '../../theme'
 
 export default function ClientDetail() {
@@ -64,6 +64,9 @@ export default function ClientDetail() {
             <Typography variant="body2" color="text.secondary">
               {[realEmail(client.email), client.phone].filter(Boolean).join(' · ') || 'Sin datos de contacto'} · Cliente desde {fmtDate(client.created_at, false)}
             </Typography>
+            {client.birthday && (
+              <Typography variant="body2" color="text.secondary">Cumpleaños: {fmtBirthday(client.birthday)}</Typography>
+            )}
             <Typography variant="body2" color="text.secondary">
               Código <Box component="span" sx={{ fontFamily: 'monospace', color: 'primary.main', fontWeight: 700 }}>{client.referral_code}</Box>
               {referrer && <> · Referido por <Link component={RouterLink} to={`/admin/clientes/${referrer.id}`}>{referrer.name}</Link></>}

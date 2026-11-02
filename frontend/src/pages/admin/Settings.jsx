@@ -44,6 +44,41 @@ export default function Settings() {
                 <TextField label="Para el nuevo cliente" type="number" value={form.referral_bonus_referred} onChange={set('referral_bonus_referred')} slotProps={pts} helperText="Se suma al bono de bienvenida" />
               </Stack>
             </Box>
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Cumpleaños</Typography>
+              <Stack spacing={2}>
+                <TextField
+                  label="Regalo de cumpleaños" type="number" value={form.birthday_bonus} onChange={set('birthday_bonus')} slotProps={pts}
+                  helperText="Se entrega una vez al año, cuando el cliente abre la app en su mes de cumpleaños. Con 0 se desactiva."
+                />
+                <TextField
+                  label="Mensaje de saludo (WhatsApp)" multiline minRows={2} value={form.birthday_message} onChange={set('birthday_message')}
+                  helperText="Puedes usar {nombre}, {negocio} y {bono}."
+                />
+              </Stack>
+            </Box>
+            <Divider />
+            <Box>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Clientes inactivos</Typography>
+              <Stack spacing={2}>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                  <TextField
+                    label="Se considera inactivo después de" type="number" value={form.inactive_days} onChange={set('inactive_days')}
+                    slotProps={{ input: { endAdornment: <InputAdornment position="end">días</InputAdornment> }, htmlInput: { min: 1 } }}
+                  />
+                  <TextField
+                    label="Código de país" type="number" value={form.whatsapp_country_code} onChange={set('whatsapp_country_code')}
+                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+</InputAdornment> }, htmlInput: { min: 1 } }}
+                    helperText="Para armar el enlace de WhatsApp (593 = Ecuador)"
+                  />
+                </Stack>
+                <TextField
+                  label="Mensaje para reactivarlos (WhatsApp)" multiline minRows={2} value={form.reactivation_message} onChange={set('reactivation_message')}
+                  helperText="Puedes usar {nombre}, {negocio} y {puntos}."
+                />
+              </Stack>
+            </Box>
             <Box><Button type="submit" variant="contained">Guardar cambios</Button></Box>
           </Stack>
         </CardContent>
