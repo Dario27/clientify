@@ -1,14 +1,18 @@
+import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { AppBar, Avatar, Box, Button, Container, Toolbar, Typography } from '@mui/material'
 import LogoutRounded from '@mui/icons-material/LogoutRounded'
+import KeyRounded from '@mui/icons-material/KeyRounded'
 import { useAuth } from '../context/AuthContext'
 import useApi from '../hooks/useApi'
 import Logo from './Logo'
+import ChangePasswordDialog from './ChangePasswordDialog'
 import { initials } from '../utils'
 
 export default function ClientLayout() {
   const { user, logout } = useAuth()
   const { data: pub } = useApi('/public')
+  const [pwd, setPwd] = useState(false)
   return (
     <Box sx={{ minHeight: '100vh' }}>
       <AppBar position="sticky" elevation={0} sx={{ borderBottom: 1, borderColor: 'divider' }}>
@@ -22,6 +26,7 @@ export default function ClientLayout() {
               </Avatar>
               <Typography variant="body2" fontWeight={600}>{user?.name}</Typography>
             </Box>
+            <Button color="inherit" size="small" startIcon={<KeyRounded />} onClick={() => setPwd(true)}>Clave</Button>
             <Button color="inherit" size="small" startIcon={<LogoutRounded />} onClick={logout}>Salir</Button>
           </Toolbar>
         </Container>
@@ -29,6 +34,7 @@ export default function ClientLayout() {
       <Container maxWidth="lg" sx={{ py: { xs: 2.5, md: 4 } }}>
         <Outlet />
       </Container>
+      <ChangePasswordDialog open={pwd} onClose={() => setPwd(false)} />
     </Box>
   )
 }
