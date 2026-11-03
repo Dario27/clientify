@@ -48,7 +48,7 @@ El admin se crea con esos valores solo la primera vez que se inicializa la base.
 
 ```bash
 cp backend/.env.example backend/.env   # completa SECRET_KEY y ADMIN_PASSWORD
-docker compose up --build -d           # webapp + API en http://localhost:8080
+docker compose up --build -d           # webapp + API en http://localhost:8085
 docker compose exec backend python seed_demo.py   # opcional: datos de demo
 ```
 
