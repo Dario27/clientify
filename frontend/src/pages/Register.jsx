@@ -13,7 +13,7 @@ export default function Register() {
   const { register } = useAuth()
   const notify = useToast()
   const { data: pub } = useApi(`/public${ref ? `?ref=${encodeURIComponent(ref)}` : ''}`)
-  const [form, setForm] = useState({ name: '', email: '', phone: '', password: '', password2: '' })
+  const [form, setForm] = useState({ name: '', email: '', phone: '', birthday: '', password: '', password2: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value })
@@ -54,6 +54,10 @@ export default function Register() {
           <TextField label="Nombre completo" required value={form.name} onChange={set('name')} autoComplete="name" />
           <TextField label="Correo" type="email" required value={form.email} onChange={set('email')} autoComplete="email" />
           <TextField label="Teléfono (opcional)" value={form.phone} onChange={set('phone')} autoComplete="tel" />
+          <TextField
+            label="Cumpleaños (opcional)" type="date" value={form.birthday} onChange={set('birthday')}
+            slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: new Date().toISOString().slice(0, 10) } }}
+          />
           <Stack spacing={2}>
             <TextField label="Contraseña" type="password" required value={form.password} onChange={set('password')}
               helperText="Mínimo 6 caracteres" slotProps={{ htmlInput: { minLength: 6 } }} autoComplete="new-password" />

@@ -17,7 +17,10 @@ import HistoryTable from '../../components/HistoryTable'
 import StatusChip from '../../components/StatusChip'
 import EmptyState from '../../components/EmptyState'
 import ClientQr from '../../components/ClientQr'
-import { fmtDate, initials } from '../../utils'
+import CakeRounded from '@mui/icons-material/CakeRounded'
+import EventRounded from '@mui/icons-material/EventRounded'
+import { Link as RouterLink } from 'react-router-dom'
+import { fmtDay, fmtDate, initials } from '../../utils'
 import { brand } from '../../theme'
 
 function PointsHero({ user, rewards }) {
@@ -96,6 +99,30 @@ function RewardCard({ reward, points, onRedeem }) {
   )
 }
 
+function BirthdayPrompt({ bonus, onSaved }) {
+  const notify = useToast()
+  const [value, setValue] = useState('')
+  const save = async (e) => {
+    e.preventDefault()
+    try { await api('/profile', { method: 'PUT', body: { birthday: value } }); notify('Cumpleaños guardado'); onSaved() }
+    catch (err) { notify(err.message, 'error') }
+  }
+  return (
+    <Alert icon={<CakeRounded />} severity="info" variant="outlined" sx={{ mb: 3, alignItems: 'center' }}>
+      <Box component="form" onSubmit={save} sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.5 }}>
+        <Typography variant="body2" sx={{ flex: '1 1 220px' }}>
+          Agrega tu cumpleaños{bonus > 0 && <> y recibe <Box component="strong">{bonus} pts</Box> de regalo cada año</>}.
+        </Typography>
+        <TextField
+          size="small" type="date" value={value} onChange={(e) => setValue(e.target.value)} required
+          slotProps={{ htmlInput: { max: new Date().toISOString().slice(0, 10) } }}
+        />
+        <Button type="submit" variant="contained" size="small" disabled={!value}>Guardar</Button>
+      </Box>
+    </Alert>
+  )
+}
+
 function QrCard({ code }) {
   return (
     <Card>
@@ -171,7 +198,7 @@ export default function Account() {
   if (loading) return <Stack spacing={2}><Skeleton variant="rounded" height={180} /><Skeleton variant="rounded" height={260} /></Stack>
   if (error) return <Alert severity="error">{error}</Alert>
 
-  const { user, rewards, history, redemptions, referrals, settings } = data
+  const { user, rewards, history, redemptions, referrals, settings, birthday_gift: gift, next_appointment: next } = data
   const pending = redemptions.filter((r) => r.status === 'pendiente')
 
   const doRedeem = async () => {
@@ -189,6 +216,21 @@ export default function Account() {
   return (
     <>
       <PointsHero user={user} rewards={rewards} />
+
+      {gift > 0 && (
+        <Alert icon={<CakeRounded />} severity="success" sx={{ mb: 3 }}>
+          ¡Feliz cumpleaños, {user.name.split(' ')[0]}! Te regalamos <strong>{gift} pts</strong>.
+        </Alert>
+      )}
+      <Alert
+        icon={<EventRounded />} severity="info" variant="outlined" sx={{ mb: 3, alignItems: 'center' }}
+        action={<Button component={RouterLink} to="/turnos" size="small" color="inherit">{next ? 'Ver turnos' : 'Reservar'}</Button>}
+      >
+        {next
+          ? <>Tu próximo turno: <strong>{fmtDay(next.start_at.slice(0, 10))} a las {next.start_at.slice(11)}</strong> · {next.service_name}</>
+          : 'Reserva tu próximo turno online, sin esperas.'}
+      </Alert>
+      {!user.birthday && <BirthdayPrompt bonus={settings.birthday_bonus} onSaved={reload} />}
 
       {pending.length > 0 && (
         <Alert severity="warning" variant="outlined" sx={{ mb: 3 }}>

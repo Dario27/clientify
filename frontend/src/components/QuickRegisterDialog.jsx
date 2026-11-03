@@ -5,7 +5,7 @@ import { api } from '../api'
 import { useToast } from '../context/ToastContext'
 import { generatePassword } from '../utils'
 
-const empty = () => ({ name: '', phone: '', email: '', password: generatePassword() })
+const empty = () => ({ name: '', phone: '', email: '', birthday: '', password: generatePassword() })
 
 /** Alta rápida de un cliente en el mostrador, con una clave inicial que el admin le entrega. */
 export default function QuickRegisterDialog({ open, onClose }) {
@@ -42,6 +42,10 @@ export default function QuickRegisterDialog({ open, onClose }) {
           <TextField label="Nombre" required autoFocus value={form.name} onChange={set('name')} />
           <TextField label="Teléfono" type="tel" value={form.phone} onChange={set('phone')} />
           <TextField label="Correo" type="email" required value={form.email} onChange={set('email')} />
+          <TextField
+            label="Cumpleaños (opcional)" type="date" value={form.birthday} onChange={set('birthday')}
+            slotProps={{ inputLabel: { shrink: true }, htmlInput: { max: new Date().toISOString().slice(0, 10) } }}
+          />
           <TextField
             label="Clave inicial" required value={form.password} onChange={set('password')}
             helperText="Anótala o díctasela al cliente: después no se puede volver a ver."

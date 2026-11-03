@@ -4,10 +4,12 @@ Flask + SQLite. Ejecutar:  python app.py   ->  API en http://localhost:5000/api
 Si existe ../frontend/dist (npm run build), también sirve la webapp React.
 """
 import os
+import re
 import secrets
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from functools import wraps
+from urllib.parse import quote
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
@@ -29,8 +31,27 @@ DEFAULT_SETTINGS = {
     "referral_bonus_referrer": "10",
     "referral_bonus_referred": "5",
     "points_per_dollar": "1",
+    "birthday_bonus": "10",
+    "inactive_days": "45",
+    "whatsapp_country_code": "593",
+    "reactivation_message": "Hola {nombre}, te extrañamos en {negocio}. Tienes {puntos} puntos esperándote: "
+                            "pasa esta semana y cámbialos por un beneficio.",
+    "birthday_message": "¡Feliz cumpleaños, {nombre}! De parte de {negocio} te regalamos {bono} puntos. "
+                        "Pasa por la barbería a celebrarlo.",
+    "open_time": "09:00",
+    "close_time": "19:00",
+    "open_days": "1,2,3,4,5,6",  # días de atención, 1 = lunes ... 7 = domingo
+    "slot_minutes": "30",
+    "booking_days_ahead": "14",
+    "max_active_appointments": "3",
+    "appointment_message": "Hola {nombre}, te recordamos tu turno en {negocio}: {servicio}, {fecha} a las {hora}. "
+                           "Si no puedes venir, avísanos para liberar el horario.",
 }
-INT_SETTINGS = [k for k in DEFAULT_SETTINGS if k != "business_name"]
+TEXT_SETTINGS = ["business_name", "reactivation_message", "birthday_message", "open_time", "close_time",
+                 "open_days", "appointment_message"]
+MIN_ONE_SETTINGS = ["slot_minutes", "booking_days_ahead", "max_active_appointments"]
+DAYS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+INT_SETTINGS = [k for k in DEFAULT_SETTINGS if k not in TEXT_SETTINGS]
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
@@ -43,6 +64,7 @@ CREATE TABLE IF NOT EXISTS users (
     points INTEGER NOT NULL DEFAULT 0,
     referral_code TEXT UNIQUE,
     referred_by INTEGER REFERENCES users(id),
+    birthday TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rewards (
@@ -71,6 +93,26 @@ CREATE TABLE IF NOT EXISTS redemptions (
     points INTEGER NOT NULL,
     code TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL DEFAULT 'pendiente',
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+);
+CREATE TABLE IF NOT EXISTS services (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    duration_min INTEGER NOT NULL,
+    price REAL NOT NULL,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS appointments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    service_id INTEGER NOT NULL REFERENCES services(id),
+    start_at TEXT NOT NULL,
+    end_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'reservado',
+    reminded_at TEXT,
+    created_by INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL,
     resolved_at TEXT
 );
@@ -151,13 +193,73 @@ def add_points(db, user_id, points, type_, description, created_by=None):
 
 def public_user(u):
     return {k: u[k] for k in ("id", "name", "email", "phone", "role", "points",
-                              "referral_code", "created_at")}
+                              "referral_code", "birthday", "created_at")}
+
+
+def clean_birthday(value):
+    """Devuelve 'YYYY-MM-DD', '' si viene vacío, o None si la fecha no es válida."""
+    value = (value or "").strip()
+    if not value:
+        return ""
+    try:
+        d = datetime.strptime(value, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    return value if date(1900, 1, 1) <= d <= date.today() else None
+
+
+def grant_birthday_bonus(db, u, created_by=None):
+    """Regala los puntos de cumpleaños, una sola vez por año. Devuelve los puntos otorgados (0 si no aplica)."""
+    bonus = setting_int("birthday_bonus")
+    if bonus <= 0 or not u["birthday"]:
+        return 0
+    year = datetime.now().strftime("%Y")
+    if db.execute("SELECT 1 FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at LIKE ?",
+                  (u["id"], year + "%")).fetchone():
+        return 0
+    add_points(db, u["id"], bonus, "cumpleanos", "Regalo de cumpleaños", created_by)
+    return bonus
+
+
+def add_visit(db, user_id, amount, concept, created_by):
+    """Suma los puntos de una visita pagada. Devuelve los puntos (0 si el monto no alcanza ni para uno)."""
+    pts = int(amount * setting_int("points_per_dollar"))
+    if pts > 0:
+        add_points(db, user_id, pts, "visita", f"{concept} (${amount:.2f})", created_by)
+    return pts
+
+
+def whatsapp_url(phone, message):
+    """Enlace wa.me con el mensaje ya escrito, o None si el cliente no tiene un teléfono usable."""
+    digits = re.sub(r"\D", "", phone or "")
+    if digits.startswith("00"):
+        digits = digits[2:]
+    cc = re.sub(r"\D", "", setting("whatsapp_country_code") or "")
+    if not digits:
+        return None
+    if digits.startswith("0"):
+        digits = cc + digits.lstrip("0")
+    elif not (cc and digits.startswith(cc) and len(digits) >= 11) and len(digits) <= 10:
+        digits = cc + digits
+    return f"https://wa.me/{digits}?text={quote(message)}"
+
+
+def render_message(template, client, **extra):
+    """Rellena {nombre}, {negocio}, {puntos}, {bono} y lo que se pase en extra, sin fallar con otras llaves."""
+    values = {"nombre": (client["name"].split() or [""])[0], "negocio": setting("business_name"),
+              "puntos": client["points"], "bono": setting_int("birthday_bonus"), **extra}
+    for k, v in values.items():
+        template = template.replace("{" + k + "}", str(v))
+    return template
 
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
+    # Migración mínima: bases creadas antes de existir la fecha de cumpleaños.
+    if "birthday" not in [r[1] for r in db.execute("PRAGMA table_info(users)")]:
+        db.execute("ALTER TABLE users ADD COLUMN birthday TEXT")
     for k, v in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
     if not db.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():
@@ -258,6 +360,20 @@ def logout():
     return jsonify({"ok": True})
 
 
+@app.put("/api/profile")
+@client_required
+def update_profile():
+    """El cliente completa o corrige su fecha de cumpleaños."""
+    birthday = clean_birthday(body().get("birthday"))
+    if birthday is None:
+        return err("La fecha de cumpleaños no es válida.")
+    db = get_db()
+    uid = current_user()["id"]
+    db.execute("UPDATE users SET birthday=? WHERE id=?", (birthday or None, uid))
+    db.commit()
+    return jsonify(public_user(db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
+
+
 @app.post("/api/password")
 @login_required
 def change_password():
@@ -286,6 +402,7 @@ def register():
     phone = (d.get("phone") or "").strip()
     password = d.get("password") or ""
     ref_code = (d.get("ref") or "").strip().upper()
+    birthday = clean_birthday(d.get("birthday"))
 
     referrer = None
     if ref_code:
@@ -301,12 +418,15 @@ def register():
         return err("Ya existe una cuenta con ese correo.")
     if ref_code and not referrer:
         return err("El código de referido no es válido.")
+    if birthday is None:
+        return err("La fecha de cumpleaños no es válida.")
 
     cur = db.execute(
         "INSERT INTO users (name, email, phone, password_hash, role, referral_code, referred_by,"
-        " created_at) VALUES (?,?,?,?, 'client', ?,?,?)",
+        " birthday, created_at) VALUES (?,?,?,?, 'client', ?,?,?,?)",
         (name, email, phone, generate_password_hash(password),
-         unique_code(db, "users", "referral_code"), referrer["id"] if referrer else None, now()))
+         unique_code(db, "users", "referral_code"), referrer["id"] if referrer else None,
+         birthday or None, now()))
     uid = cur.lastrowid
     if setting_int("welcome_bonus"):
         add_points(db, uid, setting_int("welcome_bonus"), "bienvenida", "Bono de bienvenida")
@@ -331,7 +451,22 @@ def account():
     db = get_db()
     uid = current_user()["id"]
     u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if u["birthday"] and u["birthday"][5:7] == datetime.now().strftime("%m"):
+        if grant_birthday_bonus(db, u):  # una vez al año, la primera vez que abre la app en su mes
+            db.commit()
+            u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    # El aviso no depende de esta respuesta: la app puede pedir la cuenta varias veces seguidas
+    # (React StrictMode en desarrollo, recargas) y el regalo solo se entrega en la primera.
+    recent = db.execute(
+        "SELECT points FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at >= ?"
+        " ORDER BY id DESC LIMIT 1",
+        (uid, (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M"))).fetchone()
     return jsonify({
+        "birthday_gift": recent["points"] if recent else 0,
+        "next_appointment": row(db.execute(
+            "SELECT a.id, a.start_at, a.end_at, s.name AS service_name FROM appointments a"
+            " JOIN services s ON s.id=a.service_id WHERE a.user_id=? AND a.status='reservado'"
+            " AND a.start_at >= ? ORDER BY a.start_at LIMIT 1", (uid, now()))),
         "user": public_user(u),
         "rewards": rows(db.execute("SELECT * FROM rewards WHERE active=1 ORDER BY points_cost")),
         "history": rows(db.execute(
@@ -458,8 +593,11 @@ def admin_client_create():
     phone = (d.get("phone") or "").strip()
     email = (d.get("email") or "").strip().lower()
     password = d.get("password") or ""
+    birthday = clean_birthday(d.get("birthday"))
     if len(name) < 2:
         return err("Ingresa el nombre del cliente.")
+    if birthday is None:
+        return err("La fecha de cumpleaños no es válida.")
     if "@" not in email:
         return err("Ingresa un correo válido.")
     if len(password) < 6:
@@ -470,9 +608,9 @@ def admin_client_create():
         return err("Ya existe un cliente con ese teléfono.")
     code = unique_code(db, "users", "referral_code")
     cur = db.execute(
-        "INSERT INTO users (name, email, phone, password_hash, role, referral_code, created_at)"
-        " VALUES (?,?,?,?, 'client', ?,?)",
-        (name, email, phone, generate_password_hash(password), code, now()))
+        "INSERT INTO users (name, email, phone, password_hash, role, referral_code, birthday, created_at)"
+        " VALUES (?,?,?,?, 'client', ?,?,?)",
+        (name, email, phone, generate_password_hash(password), code, birthday or None, now()))
     uid = cur.lastrowid
     if setting_int("welcome_bonus"):
         add_points(db, uid, setting_int("welcome_bonus"), "bienvenida", "Bono de bienvenida",
@@ -531,12 +669,11 @@ def admin_client_visit(uid):
         amount = float(str(d.get("amount", "0")).replace(",", "."))
     except ValueError:
         amount = 0
-    pts = int(amount * setting_int("points_per_dollar"))
-    if pts <= 0:
-        return err("Ingresa un monto mayor a 0.")
     concept = (d.get("concept") or "").strip() or "Visita"
     db = get_db()
-    add_points(db, uid, pts, "visita", f"{concept} (${amount:.2f})", current_user()["id"])
+    pts = add_visit(db, uid, amount, concept, current_user()["id"])
+    if pts <= 0:
+        return err("Ingresa un monto mayor a 0.")
     db.commit()
     return jsonify({"points": pts})
 
@@ -678,13 +815,363 @@ def admin_settings_put():
             continue
         val = str(d[key]).strip()
         if key in INT_SETTINGS and not val.isdigit():
-            return err("Los valores de puntos deben ser enteros ≥ 0.")
-        if key == "business_name" and not val:
-            return err("El nombre del negocio no puede quedar vacío.")
+            return err("Los valores numéricos deben ser enteros ≥ 0.")
+        if key in TEXT_SETTINGS and not val:
+            return err("Los textos de la configuración no pueden quedar vacíos.")
+        if key in ("open_time", "close_time") and not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", val):
+            return err("El horario debe tener formato HH:MM.")
+        if key == "open_days" and not re.fullmatch(r"[1-7](,[1-7])*", val):
+            return err("Elige al menos un día de atención.")
+        if key in MIN_ONE_SETTINGS and int(val) < 1:
+            return err("Los turnos, los días de anticipación y el máximo de turnos deben ser al menos 1.")
         db.execute("INSERT INTO settings (key, value) VALUES (?,?)"
                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, val))
+    if _minutes(setting("open_time")) >= _minutes(setting("close_time")):
+        db.rollback()
+        return err("La hora de cierre debe ser posterior a la de apertura.")
     db.commit()
     return jsonify(all_settings())
+
+
+# ---------------------------------------------------------------- reactivación y cumpleaños
+@app.get("/api/admin/inactive")
+@admin_required
+def admin_inactive():
+    """Clientes que no vienen hace más de `inactive_days` (sin visitas: desde que se registraron)."""
+    limit = setting_int("inactive_days")
+    template = setting("reactivation_message")
+    today = datetime.now()
+    out = []
+    for c in rows(get_db().execute(
+            "SELECT u.id, u.name, u.phone, u.points, u.created_at,"
+            " (SELECT MAX(created_at) FROM transactions t WHERE t.user_id=u.id AND t.type='visita') AS last_visit"
+            " FROM users u WHERE u.role='client'")):
+        days = (today - datetime.strptime((c["last_visit"] or c["created_at"])[:16], "%Y-%m-%d %H:%M")).days
+        if days < limit:
+            continue
+        out.append({**c, "days": days,
+                    "whatsapp_url": whatsapp_url(c["phone"], render_message(template, c))})
+    out.sort(key=lambda c: c["days"], reverse=True)
+    return jsonify({"days_limit": limit, "clients": out})
+
+
+@app.get("/api/admin/birthdays")
+@admin_required
+def admin_birthdays():
+    """Cumpleaños de los próximos 30 días, con el enlace de saludo y si ya se regaló este año."""
+    db = get_db()
+    today = date.today()
+    template = setting("birthday_message")
+    out = []
+    for c in rows(db.execute(
+            "SELECT id, name, phone, points, birthday FROM users WHERE role='client' AND birthday IS NOT NULL")):
+        month, day = int(c["birthday"][5:7]), int(c["birthday"][8:10])
+        nxt = _birthday_in_year(month, day, today.year)
+        if nxt < today:
+            nxt = _birthday_in_year(month, day, today.year + 1)
+        days = (nxt - today).days
+        if days > 30:
+            continue
+        granted = bool(db.execute(
+            "SELECT 1 FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at LIKE ?",
+            (c["id"], str(today.year) + "%")).fetchone())
+        out.append({**c, "days": days, "granted": granted,
+                    "whatsapp_url": whatsapp_url(c["phone"], render_message(template, c))})
+    out.sort(key=lambda c: c["days"])
+    return jsonify({"bonus": setting_int("birthday_bonus"), "clients": out})
+
+
+def _birthday_in_year(month, day, year):
+    try:
+        return date(year, month, day)
+    except ValueError:  # 29 de febrero en un año no bisiesto
+        return date(year, 3, 1)
+
+
+@app.post("/api/admin/clients/<int:uid>/birthday-gift")
+@admin_required
+def admin_birthday_gift(uid):
+    c = _client_or_404(uid)
+    if not c:
+        return err("Cliente no encontrado.", 404)
+    db = get_db()
+    pts = grant_birthday_bonus(db, c, current_user()["id"])
+    if not pts:
+        return err("No se puede regalar: ya se entregó este año, no tiene cumpleaños cargado o el bono está en 0.")
+    db.commit()
+    return jsonify({"points": pts})
+
+
+# ---------------------------------------------------------------- turnos
+def _minutes(hhmm):
+    return int(hhmm[:2]) * 60 + int(hhmm[3:5])
+
+
+def _open_days():
+    return {int(x) for x in setting("open_days").split(",") if x.strip().isdigit()}
+
+
+def booking_dates():
+    """Fechas con atención desde hoy hasta el límite de anticipación."""
+    today = date.today()
+    days = _open_days()
+    dates = [today + timedelta(days=i) for i in range(setting_int("booking_days_ahead") + 1)]
+    return [d.isoformat() for d in dates if d.isoweekday() in days]
+
+
+def free_slots(db, service, day, horizon=True):
+    """Horas de inicio (HH:MM) libres para un servicio en una fecha YYYY-MM-DD. Hay una sola agenda."""
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return []
+    today = date.today()
+    if d < today or d.isoweekday() not in _open_days():
+        return []
+    if horizon and d > today + timedelta(days=setting_int("booking_days_ahead")):
+        return []
+    busy = [(_minutes(r["start_at"][11:]), _minutes(r["end_at"][11:])) for r in db.execute(
+        "SELECT start_at, end_at FROM appointments WHERE substr(start_at,1,10)=? AND status!='cancelado'",
+        (day,))]
+    duration, step = service["duration_min"], max(setting_int("slot_minutes"), 5)
+    close = _minutes(setting("close_time"))
+    clock = datetime.now()
+    now_min = clock.hour * 60 + clock.minute if d == today else -1
+    out, t = [], _minutes(setting("open_time"))
+    while t + duration <= close:
+        if t > now_min and not any(b0 < t + duration and b1 > t for b0, b1 in busy):
+            out.append(f"{t // 60:02d}:{t % 60:02d}")
+        t += step
+    return out
+
+
+def book(db, user_id, service, day, time, created_by, horizon=True):
+    """Crea el turno si la hora sigue libre. Devuelve (id, None) o (None, mensaje de error)."""
+    taken = "Esa hora ya no está disponible. Elige otra."
+    if time not in free_slots(db, service, day, horizon):
+        return None, taken
+    db.execute("BEGIN IMMEDIATE")  # bloquea escrituras para que dos reservas no tomen la misma hora
+    try:
+        if time not in free_slots(db, service, day, horizon):
+            db.rollback()
+            return None, taken
+        start = datetime.strptime(f"{day} {time}", "%Y-%m-%d %H:%M")
+        end = start + timedelta(minutes=service["duration_min"])
+        cur = db.execute(
+            "INSERT INTO appointments (user_id, service_id, start_at, end_at, created_by, created_at)"
+            " VALUES (?,?,?,?,?,?)",
+            (user_id, service["id"], start.strftime("%Y-%m-%d %H:%M"), end.strftime("%Y-%m-%d %H:%M"),
+             created_by, now()))
+        db.commit()
+        return cur.lastrowid, None
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _active_service(db, service_id):
+    return db.execute("SELECT * FROM services WHERE id=? AND active=1", (service_id,)).fetchone()
+
+
+_APPOINTMENT_SELECT = (
+    "SELECT a.id, a.user_id, a.start_at, a.end_at, a.status, a.reminded_at, s.name AS service_name,"
+    " s.price, u.name AS client_name, u.phone, u.points FROM appointments a"
+    " JOIN services s ON s.id=a.service_id JOIN users u ON u.id=a.user_id")
+
+
+@app.get("/api/booking")
+@login_required
+def booking_info():
+    """Servicios y fechas disponibles para reservar."""
+    services = rows(get_db().execute(
+        "SELECT id, name, duration_min, price FROM services WHERE active=1 ORDER BY price"))
+    return jsonify({"services": services, "dates": booking_dates(),
+                    "max_active": setting_int("max_active_appointments")})
+
+
+@app.get("/api/slots")
+@login_required
+def slots():
+    db = get_db()
+    service = _active_service(db, request.args.get("service_id", type=int))
+    if not service:
+        return err("Servicio no encontrado.", 404)
+    horizon = current_user()["role"] != "admin"  # el admin puede agendar más allá del límite público
+    return jsonify(free_slots(db, service, request.args.get("date"), horizon))
+
+
+@app.get("/api/appointments")
+@client_required
+def my_appointments():
+    db = get_db()
+    mine = rows(db.execute(_APPOINTMENT_SELECT + " WHERE a.user_id=? ORDER BY a.start_at DESC",
+                           (current_user()["id"],)))
+    today = now()
+    upcoming = [a for a in mine if a["status"] == "reservado" and a["start_at"] >= today]
+    past = [a for a in mine if a not in upcoming][:10]
+    return jsonify({"upcoming": sorted(upcoming, key=lambda a: a["start_at"]), "past": past})
+
+
+@app.post("/api/appointments")
+@client_required
+def appointment_create():
+    db = get_db()
+    d = body()
+    uid = current_user()["id"]
+    service = _active_service(db, d.get("service_id"))
+    if not service:
+        return err("Elige un servicio.")
+    active = db.execute("SELECT COUNT(*) FROM appointments WHERE user_id=? AND status='reservado'"
+                        " AND start_at >= ?", (uid, now())).fetchone()[0]
+    if active >= setting_int("max_active_appointments"):
+        return err(f"Ya tienes {active} turnos reservados. Cancela uno o espera a que pase para reservar otro.")
+    appointment_id, e = book(db, uid, service, d.get("date"), d.get("time"), uid)
+    if e:
+        return err(e, 409)
+    return jsonify({"id": appointment_id}), 201
+
+
+@app.post("/api/appointments/<int:aid>/cancel")
+@client_required
+def appointment_cancel(aid):
+    db = get_db()
+    a = db.execute("SELECT * FROM appointments WHERE id=? AND user_id=?",
+                   (aid, current_user()["id"])).fetchone()
+    if not a:
+        return err("Turno no encontrado.", 404)
+    if a["status"] != "reservado" or a["start_at"] < now():
+        return err("Este turno ya no se puede cancelar.")
+    db.execute("UPDATE appointments SET status='cancelado', resolved_at=? WHERE id=?", (now(), aid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.get("/api/admin/appointments")
+@admin_required
+def admin_appointments():
+    day = request.args.get("date") or date.today().isoformat()
+    try:
+        d = datetime.strptime(day, "%Y-%m-%d").date()
+    except ValueError:
+        return err("Fecha no válida.")
+    template = setting("appointment_message")
+    out = []
+    for a in rows(get_db().execute(_APPOINTMENT_SELECT + " WHERE substr(a.start_at,1,10)=? ORDER BY a.start_at", (day,))):
+        message = render_message(template, {"name": a["client_name"], "points": a["points"]},
+                                 servicio=a["service_name"], hora=a["start_at"][11:],
+                                 fecha=f"{DAYS_ES[d.weekday()]} {d.day}/{d.month}")
+        out.append({**a, "whatsapp_url": whatsapp_url(a["phone"], message)})
+    return jsonify({"date": day, "appointments": out})
+
+
+@app.post("/api/admin/appointments")
+@admin_required
+def admin_appointment_create():
+    """El admin agenda a un cliente (llamada, mostrador). No aplica el límite de anticipación ni el de turnos."""
+    db = get_db()
+    d = body()
+    if not db.execute("SELECT 1 FROM users WHERE id=? AND role='client'", (d.get("user_id"),)).fetchone():
+        return err("Elige un cliente.")
+    service = _active_service(db, d.get("service_id"))
+    if not service:
+        return err("Elige un servicio.")
+    appointment_id, e = book(db, d["user_id"], service, d.get("date"), d.get("time"),
+                             current_user()["id"], horizon=False)
+    if e:
+        return err(e, 409)
+    return jsonify({"id": appointment_id}), 201
+
+
+@app.post("/api/admin/appointments/<int:aid>/<action>")
+@admin_required
+def admin_appointment_action(aid, action):
+    """atender: carga la visita y suma puntos; ausente / cancelar: libera el turno sin puntos."""
+    states = {"atender": "atendido", "ausente": "ausente", "cancelar": "cancelado"}
+    if action not in states:
+        return err("Acción no válida.", 404)
+    db = get_db()
+    a = row(db.execute(_APPOINTMENT_SELECT + " WHERE a.id=?", (aid,)))
+    if not a:
+        return err("Turno no encontrado.", 404)
+    if a["status"] != "reservado":
+        return err("Este turno ya fue resuelto.")
+    pts = 0
+    if action == "atender":
+        try:
+            amount = float(str(body().get("amount", a["price"])).replace(",", "."))
+        except ValueError:
+            amount = 0
+        if amount <= 0:
+            return err("Ingresa un monto mayor a 0.")
+        pts = add_visit(db, a["user_id"], amount, a["service_name"], current_user()["id"])
+    db.execute("UPDATE appointments SET status=?, resolved_at=? WHERE id=?", (states[action], now(), aid))
+    db.commit()
+    return jsonify({"points": pts})
+
+
+@app.post("/api/admin/appointments/<int:aid>/reminded")
+@admin_required
+def admin_appointment_reminded(aid):
+    """Marca que ya se le mandó el recordatorio por WhatsApp."""
+    db = get_db()
+    db.execute("UPDATE appointments SET reminded_at=? WHERE id=?", (now(), aid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+def _service_payload(d):
+    name = (d.get("name") or "").strip()
+    try:
+        duration = int(d.get("duration_min") or 0)
+        price = float(str(d.get("price") or 0).replace(",", "."))
+    except (TypeError, ValueError):
+        return None, "La duración y el precio deben ser números."
+    if not name:
+        return None, "El servicio necesita un nombre."
+    if not 5 <= duration <= 480:
+        return None, "La duración debe estar entre 5 y 480 minutos."
+    if price <= 0:
+        return None, "El precio debe ser mayor a 0."
+    return (name, duration, round(price, 2)), None
+
+
+@app.get("/api/admin/services")
+@admin_required
+def admin_services():
+    return jsonify(rows(get_db().execute("SELECT * FROM services ORDER BY active DESC, price")))
+
+
+@app.post("/api/admin/services")
+@admin_required
+def admin_service_create():
+    vals, e = _service_payload(body())
+    if e:
+        return err(e)
+    db = get_db()
+    db.execute("INSERT INTO services (name, duration_min, price, created_at) VALUES (?,?,?,?)", (*vals, now()))
+    db.commit()
+    return jsonify({"ok": True}), 201
+
+
+@app.put("/api/admin/services/<int:sid>")
+@admin_required
+def admin_service_update(sid):
+    vals, e = _service_payload(body())
+    if e:
+        return err(e)
+    db = get_db()
+    db.execute("UPDATE services SET name=?, duration_min=?, price=? WHERE id=?", (*vals, sid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/admin/services/<int:sid>/toggle")
+@admin_required
+def admin_service_toggle(sid):
+    db = get_db()
+    db.execute("UPDATE services SET active = 1 - active WHERE id=?", (sid,))
+    db.commit()
+    return jsonify({"ok": True})
 
 
 # ---------------------------------------------------------------- SPA (build de React)
