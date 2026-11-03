@@ -34,7 +34,12 @@ function Row({ client, detail, children }) {
   )
 }
 
-const when = (days) => (days === 0 ? 'Hoy' : days === 1 ? 'Mañana' : `En ${days} días`)
+const when = (days) => {
+  if (days === 0) return 'Hoy'
+  if (days === 1) return 'Mañana'
+  if (days === -1) return 'Ayer'
+  return days > 0 ? `En ${days} días` : `Hace ${-days} días`
+}
 
 function Inactive({ data }) {
   const list = data.clients
@@ -59,7 +64,7 @@ function Birthdays({ data, reload }) {
     try { const r = await api(`/admin/clients/${c.id}/birthday-gift`, { method: 'POST' }); notify(`Se regalaron ${r.points} pts a ${c.name}`); reload() }
     catch (e) { notify(e.message, 'error') }
   }
-  if (!data.clients.length) return <EmptyState icon={<CakeRounded />} text="No hay cumpleaños en los próximos 30 días. Los clientes cargan su fecha al registrarse o desde su cuenta." />
+  if (!data.clients.length) return <EmptyState icon={<CakeRounded />} text="No hay cumpleaños este mes ni en los próximos 30 días. Los clientes cargan su fecha al registrarse o desde su cuenta." />
   return (
     <Stack divider={<Box sx={{ borderTop: 1, borderColor: 'divider' }} />}>
       {data.clients.map((c) => (
