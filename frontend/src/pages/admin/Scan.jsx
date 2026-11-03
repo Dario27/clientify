@@ -13,22 +13,27 @@ export default function Scan() {
   const navigate = useNavigate()
   const notify = useToast()
   const videoRef = useRef(null)
-  const lookingUp = useRef(false)
+  const inFlight = useRef(false)
+  const cameraPausedUntil = useRef(0)
   const [code, setCode] = useState('')
   const [camera, setCamera] = useState('idle') // idle | on | error
   const [cameraMsg, setCameraMsg] = useState('')
   const [quick, setQuick] = useState(false)
 
-  const lookup = useCallback(async (value) => {
+  const lookup = useCallback(async (value, fromCamera = false) => {
     const c = value.trim()
-    if (!c || lookingUp.current) return
-    lookingUp.current = true
+    if (!c || inFlight.current) return
+    // La cámara lee el mismo QR en cada fotograma: tras un error se pausa un momento para no repetir el aviso.
+    // La búsqueda manual no se pausa, para poder corregir el código y reintentar enseguida.
+    if (fromCamera && Date.now() < cameraPausedUntil.current) return
+    inFlight.current = true
     try {
       const { id } = await api(`/admin/clients/by-code/${encodeURIComponent(c)}`)
       navigate(`/admin/clientes/${id}`)
     } catch (e) {
       notify(e.message, 'error')
-      setTimeout(() => { lookingUp.current = false }, 1500) // evita repetir el aviso en cada fotograma
+      cameraPausedUntil.current = Date.now() + 1500
+      inFlight.current = false
     }
   }, [navigate, notify])
 
@@ -51,7 +56,7 @@ export default function Scan() {
         ctx.drawImage(v, 0, 0)
         const img = ctx.getImageData(0, 0, canvas.width, canvas.height)
         const hit = jsQR(img.data, img.width, img.height)
-        if (hit?.data) lookup(hit.data)
+        if (hit?.data) lookup(hit.data, true)
       }
       raf = requestAnimationFrame(tick)
     }
