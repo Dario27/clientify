@@ -102,4 +102,5 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 - Anti-fraude de referidos, por ejemplo entregar el bono tras la primera visita pagada.
 - Usar gunicorn/waitress con HTTPS y migrar a PostgreSQL cuando crezca.
 
-Developemnt: Steven Chilan 2026
+Developer: Steven Chilan
+Since: 2026
