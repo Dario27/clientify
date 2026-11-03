@@ -219,7 +219,7 @@ export default function Account() {
 
       {gift > 0 && (
         <Alert icon={<CakeRounded />} severity="success" sx={{ mb: 3 }}>
-          ¡Feliz cumpleaños, {user.name.split(' ')[0]}! Te regalamos <strong>{gift} pts</strong>.
+          ¡Este mes es tu cumpleaños, {user.name.split(' ')[0]}! Te regalamos <strong>{gift} pts</strong>.
         </Alert>
       )}
       <Alert

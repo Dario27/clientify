@@ -858,26 +858,32 @@ def admin_inactive():
 @app.get("/api/admin/birthdays")
 @admin_required
 def admin_birthdays():
-    """Cumpleaños de los próximos 30 días, con el enlace de saludo y si ya se regaló este año."""
+    """Cumpleaños del mes en curso (incluso los que ya pasaron) y de los próximos 30 días.
+
+    El mes completo coincide con la regla del regalo automático, que se entrega en todo el mes de cumpleaños.
+    `days` es negativo para los cumpleaños de este mes que ya pasaron.
+    """
     db = get_db()
     today = date.today()
     template = setting("birthday_message")
     out = []
     for c in rows(db.execute(
             "SELECT id, name, phone, points, birthday FROM users WHERE role='client' AND birthday IS NOT NULL")):
-        month, day = int(c["birthday"][5:7]), int(c["birthday"][8:10])
-        nxt = _birthday_in_year(month, day, today.year)
-        if nxt < today:
-            nxt = _birthday_in_year(month, day, today.year + 1)
-        days = (nxt - today).days
-        if days > 30:
-            continue
+        this_year = _birthday_in_year(int(c["birthday"][5:7]), int(c["birthday"][8:10]), today.year)
+        if this_year.month == today.month:
+            days = (this_year - today).days
+        else:
+            nxt = this_year if this_year >= today else _birthday_in_year(this_year.month, this_year.day, today.year + 1)
+            days = (nxt - today).days
+            if days > 30:
+                continue
         granted = bool(db.execute(
             "SELECT 1 FROM transactions WHERE user_id=? AND type='cumpleanos' AND created_at LIKE ?",
             (c["id"], str(today.year) + "%")).fetchone())
         out.append({**c, "days": days, "granted": granted,
                     "whatsapp_url": whatsapp_url(c["phone"], render_message(template, c))})
-    out.sort(key=lambda c: c["days"])
+    # Primero los de hoy y los próximos; después los de este mes que ya pasaron, del más reciente al más lejano.
+    out.sort(key=lambda c: (0, c["days"]) if c["days"] >= 0 else (1, -c["days"]))
     return jsonify({"bonus": setting_int("birthday_bonus"), "clients": out})
 
 
