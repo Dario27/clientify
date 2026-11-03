@@ -103,4 +103,5 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 - Usar gunicorn/waitress con HTTPS y migrar a PostgreSQL cuando crezca.
 
 Developer: Steven Chilan
+Otros Authors: Jeff Pino
 Since: 2026
