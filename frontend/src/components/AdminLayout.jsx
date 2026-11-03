@@ -6,19 +6,23 @@ import {
 } from '@mui/material'
 import DashboardRounded from '@mui/icons-material/DashboardRounded'
 import PeopleAltRounded from '@mui/icons-material/PeopleAltRounded'
+import QrCodeScannerRounded from '@mui/icons-material/QrCodeScannerRounded'
 import RedeemRounded from '@mui/icons-material/RedeemRounded'
 import CardGiftcardRounded from '@mui/icons-material/CardGiftcardRounded'
 import TuneRounded from '@mui/icons-material/TuneRounded'
 import LogoutRounded from '@mui/icons-material/LogoutRounded'
+import KeyRounded from '@mui/icons-material/KeyRounded'
 import MenuRounded from '@mui/icons-material/MenuRounded'
 import { useAuth } from '../context/AuthContext'
 import useApi from '../hooks/useApi'
 import Logo from './Logo'
+import ChangePasswordDialog from './ChangePasswordDialog'
 import { initials } from '../utils'
 
 const WIDTH = 248
 const NAV = [
   { to: '/admin', label: 'Resumen', icon: <DashboardRounded />, end: true },
+  { to: '/admin/escanear', label: 'Escanear', icon: <QrCodeScannerRounded /> },
   { to: '/admin/clientes', label: 'Clientes', icon: <PeopleAltRounded /> },
   { to: '/admin/canjes', label: 'Canjes', icon: <RedeemRounded /> },
   { to: '/admin/beneficios', label: 'Beneficios', icon: <CardGiftcardRounded /> },
@@ -29,6 +33,7 @@ export default function AdminLayout() {
   const theme = useTheme()
   const desktop = useMediaQuery(theme.breakpoints.up('md'))
   const [open, setOpen] = useState(false)
+  const [pwd, setPwd] = useState(false)
   const { user, logout } = useAuth()
   const { data: pub } = useApi('/public')
   const { pathname } = useLocation()
@@ -60,6 +65,7 @@ export default function AdminLayout() {
           <Typography variant="body2" fontWeight={600} noWrap>{user?.name}</Typography>
           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>{user?.email}</Typography>
         </Box>
+        <Tooltip title="Cambiar clave"><IconButton size="small" onClick={() => setPwd(true)}><KeyRounded fontSize="small" /></IconButton></Tooltip>
         <Tooltip title="Cerrar sesión"><IconButton size="small" onClick={logout}><LogoutRounded fontSize="small" /></IconButton></Tooltip>
       </Box>
     </Box>
@@ -86,6 +92,7 @@ export default function AdminLayout() {
       <Box component="main" key={pathname} sx={{ flex: 1, minWidth: 0, p: { xs: 2, sm: 3, lg: 4 }, pt: { xs: 10, md: 4 }, maxWidth: 1280 }}>
         <Outlet />
       </Box>
+      <ChangePasswordDialog open={pwd} onClose={() => setPwd(false)} />
     </Box>
   )
 }

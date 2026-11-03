@@ -16,6 +16,7 @@ import { useToast } from '../../context/ToastContext'
 import HistoryTable from '../../components/HistoryTable'
 import StatusChip from '../../components/StatusChip'
 import EmptyState from '../../components/EmptyState'
+import ClientQr from '../../components/ClientQr'
 import { fmtDate, initials } from '../../utils'
 import { brand } from '../../theme'
 
@@ -90,6 +91,20 @@ function RewardCard({ reward, points, onRedeem }) {
         >
           {out ? 'Agotado' : can ? 'Canjear' : `Faltan ${missing} pts`}
         </Button>
+      </CardContent>
+    </Card>
+  )
+}
+
+function QrCard({ code }) {
+  return (
+    <Card>
+      <CardContent sx={{ p: 3, textAlign: 'center' }}>
+        <Typography variant="h6" sx={{ mb: 0.5 }}>Tu QR</Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          Muéstralo en la barbería y te encuentran al instante para sumar tus puntos.
+        </Typography>
+        <ClientQr code={code} size={180} />
       </CardContent>
     </Card>
   )
@@ -190,7 +205,10 @@ export default function Account() {
       ) : <EmptyState text="La barbería aún no publicó beneficios." />}
 
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '360px 1fr' }, alignItems: 'start' }}>
-        <ReferralCard code={user.referral_code} referrals={referrals} settings={settings} />
+        <Stack spacing={2}>
+          <QrCard code={user.referral_code} />
+          <ReferralCard code={user.referral_code} referrals={referrals} settings={settings} />
+        </Stack>
         <Card>
           <Tabs value={tab} onChange={(_, v) => setTab(v)} sx={{ px: 2, borderBottom: 1, borderColor: 'divider' }}>
             <Tab label="Movimientos" />

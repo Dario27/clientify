@@ -258,6 +258,25 @@ def logout():
     return jsonify({"ok": True})
 
 
+@app.post("/api/password")
+@login_required
+def change_password():
+    """Cambio de clave propio: exige la clave actual."""
+    d = body()
+    u = current_user()
+    if not check_password_hash(u["password_hash"], d.get("current_password") or ""):
+        return err("La clave actual no es correcta.")
+    new = d.get("new_password") or ""
+    if len(new) < 6:
+        return err("La nueva clave debe tener al menos 6 caracteres.")
+    if new == d.get("current_password"):
+        return err("La nueva clave debe ser distinta de la actual.")
+    db = get_db()
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new), u["id"]))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 @app.post("/api/register")
 def register():
     db = get_db()
@@ -418,6 +437,50 @@ def _client_or_404(uid):
     return get_db().execute("SELECT * FROM users WHERE id=? AND role='client'", (uid,)).fetchone()
 
 
+@app.get("/api/admin/clients/by-code/<code>")
+@admin_required
+def admin_client_by_code(code):
+    """Resuelve el código del QR del cliente (su referral_code) a su ficha."""
+    c = get_db().execute("SELECT id FROM users WHERE referral_code=? AND role='client'",
+                         (code.strip().upper(),)).fetchone()
+    if not c:
+        return err("No hay ningún cliente con ese código.", 404)
+    return jsonify({"id": c["id"]})
+
+
+@app.post("/api/admin/clients")
+@admin_required
+def admin_client_create():
+    """Registro rápido en el mostrador: el admin define la clave inicial y se la entrega al cliente."""
+    db = get_db()
+    d = body()
+    name = (d.get("name") or "").strip()
+    phone = (d.get("phone") or "").strip()
+    email = (d.get("email") or "").strip().lower()
+    password = d.get("password") or ""
+    if len(name) < 2:
+        return err("Ingresa el nombre del cliente.")
+    if "@" not in email:
+        return err("Ingresa un correo válido.")
+    if len(password) < 6:
+        return err("La clave debe tener al menos 6 caracteres.")
+    if db.execute("SELECT 1 FROM users WHERE email=?", (email,)).fetchone():
+        return err("Ya existe una cuenta con ese correo.")
+    if phone and db.execute("SELECT 1 FROM users WHERE phone=? AND role='client'", (phone,)).fetchone():
+        return err("Ya existe un cliente con ese teléfono.")
+    code = unique_code(db, "users", "referral_code")
+    cur = db.execute(
+        "INSERT INTO users (name, email, phone, password_hash, role, referral_code, created_at)"
+        " VALUES (?,?,?,?, 'client', ?,?)",
+        (name, email, phone, generate_password_hash(password), code, now()))
+    uid = cur.lastrowid
+    if setting_int("welcome_bonus"):
+        add_points(db, uid, setting_int("welcome_bonus"), "bienvenida", "Bono de bienvenida",
+                   current_user()["id"])
+    db.commit()
+    return jsonify({"id": uid}), 201
+
+
 @app.get("/api/admin/clients/<int:uid>")
 @admin_required
 def admin_client_detail(uid):
@@ -440,6 +503,21 @@ def admin_client_detail(uid):
             "SELECT id, name, created_at FROM users WHERE referred_by=?", (uid,))),
         "points_per_dollar": setting_int("points_per_dollar"),
     })
+
+
+@app.post("/api/admin/clients/<int:uid>/password")
+@admin_required
+def admin_client_password(uid):
+    """El admin restablece la clave de un cliente que la olvidó y se la entrega en persona."""
+    if not _client_or_404(uid):
+        return err("Cliente no encontrado.", 404)
+    new = body().get("new_password") or ""
+    if len(new) < 6:
+        return err("La clave debe tener al menos 6 caracteres.")
+    db = get_db()
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new), uid))
+    db.commit()
+    return jsonify({"ok": True})
 
 
 @app.post("/api/admin/clients/<int:uid>/visit")

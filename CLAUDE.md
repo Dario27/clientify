@@ -47,6 +47,8 @@ No hay tests, linter ni migraciones configurados.
 - `src/api.js` es el único cliente HTTP (`fetch` con `credentials: 'include'`); lanza `Error` con el mensaje de la API y `e.status`.
 - `hooks/useApi.js` para cargas GET (`{ data, loading, error, reload }`); `context/AuthContext` mantiene la sesión vía `/api/me`; `context/ToastContext` expone `notify(msg, severity)`.
 - Rutas en `App.jsx`: `/login`, `/registro?ref=CODIGO`, `/mi-cuenta` (cliente) y `/admin/*` (admin), protegidas por `RequireRole`.
+- QR y registro rápido: el QR de cada cliente codifica su `referral_code`; `/admin/escanear` lo lee (cámara con `jsqr`, solo en HTTPS/localhost) o acepta el código escrito/lector USB y resuelve la ficha con `GET /api/admin/clients/by-code/<code>`. `POST /api/admin/clients` da de alta a un cliente (correo y clave inicial obligatorios, la define el admin; los clientes antiguos con correo `@sin-correo.local` se muestran como "Sin correo" con `realEmail()` de `utils.js`).
+- Cambio de clave: `POST /api/password` (propio, pide la clave actual; lo usan cliente y admin desde el botón de llave del layout) y `POST /api/admin/clients/<id>/password` (el admin restablece la de un cliente desde su ficha). No hay recuperación por correo.
 - Tema y paleta "Trust & Reward" en `src/theme.js`; usar sus colores en vez de valores sueltos.
 
 ### Mismo origen (importante)

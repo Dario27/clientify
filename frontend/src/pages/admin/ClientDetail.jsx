@@ -1,19 +1,23 @@
 import { useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import {
-  Alert, Avatar, Box, Button, Card, CardContent, InputAdornment, Link, Skeleton, Stack, Tab, Tabs,
+  Alert, Avatar, Box, Button, Card, CardContent, Dialog, DialogContent, DialogTitle, InputAdornment, Link, Skeleton, Stack, Tab, Tabs,
   TextField, Typography,
 } from '@mui/material'
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded'
 import AddCircleRounded from '@mui/icons-material/AddCircleRounded'
 import TuneRounded from '@mui/icons-material/TuneRounded'
+import QrCode2Rounded from '@mui/icons-material/QrCode2Rounded'
+import KeyRounded from '@mui/icons-material/KeyRounded'
 import useApi from '../../hooks/useApi'
 import { api } from '../../api'
 import { useToast } from '../../context/ToastContext'
 import HistoryTable from '../../components/HistoryTable'
 import StatusChip from '../../components/StatusChip'
 import EmptyState from '../../components/EmptyState'
-import { fmtDate, initials } from '../../utils'
+import ClientQr from '../../components/ClientQr'
+import ResetPasswordDialog from '../../components/ResetPasswordDialog'
+import { fmtDate, initials, realEmail } from '../../utils'
 import { brand } from '../../theme'
 
 export default function ClientDetail() {
@@ -23,6 +27,8 @@ export default function ClientDetail() {
   const [visit, setVisit] = useState({ amount: '', concept: '' })
   const [adj, setAdj] = useState({ points: '', reason: '' })
   const [tab, setTab] = useState(0)
+  const [qr, setQr] = useState(false)
+  const [reset, setReset] = useState(false)
 
   if (loading) return <Stack spacing={2}><Skeleton variant="rounded" height={140} /><Skeleton variant="rounded" height={240} /></Stack>
   if (error) return <Alert severity="error">{error}</Alert>
@@ -56,19 +62,34 @@ export default function ClientDetail() {
           <Box sx={{ flex: 1, minWidth: 220 }}>
             <Typography variant="h5">{client.name}</Typography>
             <Typography variant="body2" color="text.secondary">
-              {client.email}{client.phone && ` · ${client.phone}`} · Cliente desde {fmtDate(client.created_at, false)}
+              {[realEmail(client.email), client.phone].filter(Boolean).join(' · ') || 'Sin datos de contacto'} · Cliente desde {fmtDate(client.created_at, false)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               Código <Box component="span" sx={{ fontFamily: 'monospace', color: 'primary.main', fontWeight: 700 }}>{client.referral_code}</Box>
               {referrer && <> · Referido por <Link component={RouterLink} to={`/admin/clientes/${referrer.id}`}>{referrer.name}</Link></>}
             </Typography>
           </Box>
+          <Stack spacing={1}>
+            <Button variant="outlined" size="small" startIcon={<QrCode2Rounded />} onClick={() => setQr(true)}>Ver QR</Button>
+            <Button variant="outlined" size="small" color="inherit" startIcon={<KeyRounded />} onClick={() => setReset(true)}>Restablecer clave</Button>
+          </Stack>
           <Box sx={{ textAlign: 'right' }}>
             <Typography variant="overline">Saldo</Typography>
             <Typography sx={{ fontSize: 44, fontWeight: 800, lineHeight: 1, color: 'primary.main' }}>{client.points}<Typography component="span" color="text.secondary" sx={{ ml: 0.5 }}>pts</Typography></Typography>
           </Box>
         </CardContent>
       </Card>
+
+      <ResetPasswordDialog open={reset} client={client} onClose={() => setReset(false)} />
+
+      <Dialog open={qr} onClose={() => setQr(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>{client.name}</DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', pb: 4 }}>
+          <ClientQr code={client.referral_code} size={240} />
+          <Typography sx={{ mt: 2, fontFamily: 'monospace', fontWeight: 700, color: 'primary.main', letterSpacing: 1 }}>{client.referral_code}</Typography>
+          <Typography variant="body2" color="text.secondary">Se escanea desde Escanear para abrir esta ficha.</Typography>
+        </DialogContent>
+      </Dialog>
 
       <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, mb: 2 }}>
         <Card>
