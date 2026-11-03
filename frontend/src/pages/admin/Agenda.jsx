@@ -105,7 +105,7 @@ export default function Agenda() {
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 2 }}>
         <IconButton onClick={() => setDay(addDays(day, -1))}><ChevronLeftRounded /></IconButton>
         <TextField
-          type="date" size="small" value={day} onChange={(e) => e.target.value && setDay(e.target.value)}
+          type="date" fullWidth={false} sx={{ width: 190 }} value={day} onChange={(e) => e.target.value && setDay(e.target.value)}
           slotProps={{ input: { startAdornment: <InputAdornment position="start"><EventRounded fontSize="small" /></InputAdornment> } }}
         />
         <IconButton onClick={() => setDay(addDays(day, 1))}><ChevronRightRounded /></IconButton>
