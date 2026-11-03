@@ -1,0 +1,34 @@
+name: Revisión automática de PR
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Revisa el PR #${{ github.event.pull_request.number }}.
+            Usa `gh pr diff` para ver los cambios.
+            Evalúa: bugs, seguridad, manejo de errores, tests y legibilidad.
+            Deja comentarios concretos en las líneas con problemas.
+            Al final decide:
+            - Si no hay problemas bloqueantes: `gh pr review --approve -b "<resumen>"`
+            - Si los hay: `gh pr review --request-changes -b "<resumen>"`
+          claude_args: >
+            --allowedTools "Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh pr review:*),Bash(gh pr comment:*),Read,Grep,Glob"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
