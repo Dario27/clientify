@@ -3,25 +3,20 @@ name: Claude Code Review
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
-    # Optional: Only run on specific file changes
-    # paths:
-    #   - "src/**/*.ts"
-    #   - "src/**/*.tsx"
-    #   - "src/**/*.js"
-    #   - "src/**/*.jsx"
+
+# Si llegan commits nuevos mientras corre, cancela la revisión anterior
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   claude-review:
-    # Optional: Filter by PR author
-    # if: |
-    #   github.event.pull_request.user.login == 'external-contributor' ||
-    #   github.event.pull_request.user.login == 'new-developer' ||
-    #   github.event.pull_request.author_association == 'FIRST_TIME_CONTRIBUTOR'
-
+    # No revisar drafts
+    if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      pull-requests: read
+      pull-requests: write   # necesario para aprobar
       issues: read
       id-token: write
 
@@ -29,8 +24,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          fetch-depth: 0   # historial completo para que el chequeo con git blame tenga contexto
 
+      # ── Paso 1: revisión con el plugin oficial (deja comentarios en línea) ──
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
@@ -40,6 +36,62 @@ jobs:
           plugins: 'code-review@claude-code-plugins'
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment"'
-          # See https://github.com/anthropics/claude-code-action/blob/main/docs/usage.md
-          # or https://code.claude.com/docs/en/cli-reference for available options
 
+      # ── Paso 2: decidir si se aprueba (lógica determinista, sin IA) ──
+      - name: Decidir aprobación
+        id: decision
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          # Ajusta estos límites a tu proyecto
+          MAX_LINEAS: '400'
+          RUTAS_SENSIBLES: '(^\.github/|migrations?/|auth|security|\.env|secrets?)'
+        run: |
+          set -euo pipefail
+
+          # 1) ¿Claude dejó comentarios en línea sobre el último commit?
+          hallazgos=$(gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+            --jq "[.[] | select(.commit_id == \"$HEAD_SHA\"
+                    and .user.type == \"Bot\"
+                    and (.user.login | test(\"claude\"; \"i\")))] | length" \
+            | awk '{s+=$1} END {print s+0}')
+
+          # 2) Tamaño del PR
+          lineas=$(gh pr view "$PR" --repo "$REPO" --json additions,deletions \
+            --jq '.additions + .deletions')
+
+          # 3) ¿Toca rutas sensibles?
+          sensibles=$(gh pr view "$PR" --repo "$REPO" --json files --jq '.files[].path' \
+            | grep -Ei "$RUTAS_SENSIBLES" || true)
+
+          aprobar=true
+          motivo="Sin hallazgos de Claude, $lineas líneas cambiadas, sin rutas sensibles."
+
+          if [ "$hallazgos" -gt 0 ]; then
+            aprobar=false
+            motivo="Claude dejó $hallazgos comentario(s) en el último commit."
+          elif [ "$lineas" -gt "$MAX_LINEAS" ]; then
+            aprobar=false
+            motivo="PR grande ($lineas líneas > $MAX_LINEAS). Requiere revisión humana."
+          elif [ -n "$sensibles" ]; then
+            aprobar=false
+            motivo="Toca rutas sensibles: $(echo "$sensibles" | tr '\n' ' ')"
+          fi
+
+          echo "aprobar=$aprobar" >> "$GITHUB_OUTPUT"
+          echo "motivo=$motivo"   >> "$GITHUB_OUTPUT"
+          echo "### Decisión de aprobación: $aprobar" >> "$GITHUB_STEP_SUMMARY"
+          echo "$motivo" >> "$GITHUB_STEP_SUMMARY"
+
+      # ── Paso 3: aprobar solo si todo pasó ──
+      - name: Aprobar PR
+        if: steps.decision.outputs.aprobar == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr review "${{ github.event.pull_request.number }}" \
+            --repo "${{ github.repository }}" \
+            --approve \
+            --body "✅ Aprobado automáticamente por la revisión de Claude. ${{ steps.decision.outputs.motivo }}"
