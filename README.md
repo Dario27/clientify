@@ -101,3 +101,5 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 - Agregar CSRF, límite de intentos de login y recuperación de contraseña.
 - Anti-fraude de referidos, por ejemplo entregar el bono tras la primera visita pagada.
 - Usar gunicorn/waitress con HTTPS y migrar a PostgreSQL cuando crezca.
+
+Developemnt: Steven Chilan 2026
