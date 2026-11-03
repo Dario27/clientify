@@ -19,7 +19,7 @@ cd frontend && npm install
 npm run dev
 npm run build                # genera frontend/dist
 
-# Todo en Docker (http://localhost:8080)
+# Todo en Docker (http://localhost:8085)
 docker compose up --build -d
 docker compose exec backend python seed_demo.py
 ```
@@ -57,4 +57,4 @@ No hay tests, linter ni migraciones configurados.
 La cookie de sesión es `SameSite=Lax` y el backend **no tiene CORS**. Todo funciona porque el front y la API comparten origen: en desarrollo vía el proxy de Vite, en Docker vía Nginx (`frontend/nginx.conf` redirige `/api/` a `backend:8000`). Servir la API en otro dominio requiere agregar CORS con credenciales.
 
 ### Docker
-`docker-compose.yml` levanta `backend` (Gunicorn con `--preload` para que `init_db()` corra una sola vez, no expuesto afuera) y `frontend` (build de Vite servido por Nginx en `${APP_PORT:-8080}`). `./data` se monta en `/data` del backend.
+`docker-compose.yml` levanta `backend` (Gunicorn con `--preload` para que `init_db()` corra una sola vez, no expuesto afuera) y `frontend` (build de Vite servido por Nginx en `${APP_PORT:-8085}`). `./data` se monta en `/data` del backend.
