@@ -106,3 +106,26 @@ jobs:
           gh pr merge "${{ github.event.pull_request.number }}" \
             --repo "${{ github.repository }}" \
             --squash --auto
+
+      # ── Paso 5: eliminar la rama remota una vez fusionado el PR ──
+      # Solo para ramas del mismo repo (no forks)
+      - name: Eliminar rama remota
+        if: steps.decision.outputs.aprobar == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          RAMA: ${{ github.event.pull_request.head.ref }}
+        run: |
+          # Espera hasta ~1 minuto a que el merge se complete
+          for i in 1 2 3 4 5 6; do
+            estado=$(gh pr view "$PR" --repo "$REPO" --json state --jq .state)
+            if [ "$estado" = "MERGED" ]; then
+              gh api -X DELETE "repos/$REPO/git/refs/heads/$RAMA" \
+                && echo "Rama $RAMA eliminada." \
+                || echo "La rama $RAMA ya no existe."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "El PR aún no está fusionado; la rama se mantiene."
