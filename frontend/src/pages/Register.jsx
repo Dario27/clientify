@@ -32,7 +32,7 @@ export default function Register() {
     }
   }
 
-  const bonus = pub ? pub.welcome_bonus + (pub.referrer ? pub.referral_bonus_referred : 0) : null
+  const bonus = pub ? pub.welcome_bonus : null
 
   return (
     <AuthShell
@@ -42,7 +42,7 @@ export default function Register() {
     >
       {pub?.referrer && (
         <Alert icon={<GroupAddRounded />} severity="warning" variant="outlined" sx={{ mb: 2 }}>
-          Te invitó <strong>{pub.referrer}</strong>. Al registrarte, ambos ganan puntos extra.
+          Te invitó <strong>{pub.referrer}</strong>. Cuando hagas tu primera visita, ambos ganan puntos extra.
         </Alert>
       )}
       {ref && pub && !pub.referrer && (

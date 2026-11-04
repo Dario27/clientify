@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link as RouterLink, useParams } from 'react-router-dom'
 import {
-  Alert, Avatar, Box, Button, Card, CardContent, Dialog, DialogContent, DialogTitle, InputAdornment, Link, Skeleton, Stack, Tab, Tabs,
+  Alert, Avatar, Box, Button, Card, CardContent, Chip, Dialog, DialogContent, DialogTitle, InputAdornment, Link, Skeleton, Stack, Tab, Tabs,
   TextField, Typography,
 } from '@mui/material'
 import ArrowBackRounded from '@mui/icons-material/ArrowBackRounded'
@@ -156,6 +156,7 @@ export default function ClientDetail() {
                   <Avatar sx={{ width: 30, height: 30, fontSize: 12 }}>{initials(r.name)}</Avatar>
                   <Link component={RouterLink} to={`/admin/clientes/${r.id}`} sx={{ flex: 1 }} fontWeight={600}>{r.name}</Link>
                   <Typography variant="caption" color="text.secondary">{fmtDate(r.created_at, false)}</Typography>
+                  <Chip size="small" variant="outlined" color={r.rewarded ? 'success' : 'warning'} label={r.rewarded ? 'Bono entregado' : 'Falta su primera visita'} />
                 </Box>
               ))}
             </Stack>

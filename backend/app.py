@@ -47,6 +47,7 @@ DEFAULT_SETTINGS = {
     "max_active_appointments": "3",
     "points_expiry_months": "0",  # 0 = los puntos no vencen
     "expiry_warning_days": "30",  # con cuántos días de anticipación se avisa al cliente
+    "referral_min_spend": "0",  # gasto mínimo ($) de la visita que activa los bonos de referido; 0 = cualquiera
     "appointment_message": "Hola {nombre}, te recordamos tu turno en {negocio}: {servicio}, {fecha} a las {hora}. "
                            "Si no puedes venir, avísanos para liberar el horario.",
 }
@@ -68,6 +69,7 @@ CREATE TABLE IF NOT EXISTS users (
     referral_code TEXT UNIQUE,
     referred_by INTEGER REFERENCES users(id),
     birthday TEXT,
+    referral_rewarded INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS rewards (
@@ -321,7 +323,28 @@ def add_visit(db, user_id, amount, concept, created_by):
     pts = int(amount * setting_int("points_per_dollar"))
     if pts > 0:
         add_points(db, user_id, pts, "visita", f"{concept} (${amount:.2f})", created_by)
+        reward_referral(db, user_id, amount)
     return pts
+
+
+def reward_referral(db, user_id, amount):
+    """Entrega los bonos de referido (al que invitó y al invitado) en la primera visita pagada del invitado.
+
+    Así crear cuentas falsas no rinde: el bono solo sale cuando el invitado paga una visita real.
+    """
+    u = db.execute("SELECT name, referred_by FROM users WHERE id=? AND referral_rewarded=0", (user_id,)).fetchone()
+    if not u or not u["referred_by"] or amount < setting_int("referral_min_spend"):
+        return
+    # La marca va primero y con condición: si dos visitas llegan a la vez, solo una entrega los bonos.
+    if db.execute("UPDATE users SET referral_rewarded=1 WHERE id=? AND referral_rewarded=0", (user_id,)).rowcount != 1:
+        return
+    referrer = db.execute("SELECT name FROM users WHERE id=?", (u["referred_by"],)).fetchone()
+    if setting_int("referral_bonus_referred"):
+        add_points(db, user_id, setting_int("referral_bonus_referred"), "referido",
+                   f"Bono por tu primera visita con el código de {referrer['name']}")
+    if setting_int("referral_bonus_referrer"):
+        add_points(db, u["referred_by"], setting_int("referral_bonus_referrer"), "referido",
+                   f"Bono por referir a {u['name']}: hizo su primera visita")
 
 
 def whatsapp_url(phone, message):
@@ -352,9 +375,14 @@ def init_db():
     db = sqlite3.connect(DB_PATH)
     db.row_factory = sqlite3.Row
     db.executescript(SCHEMA)
-    # Migración mínima: bases creadas antes de existir la fecha de cumpleaños.
-    if "birthday" not in [r[1] for r in db.execute("PRAGMA table_info(users)")]:
+    # Migraciones mínimas: columnas que no existían en las bases creadas antes.
+    cols = [r[1] for r in db.execute("PRAGMA table_info(users)")]
+    if "birthday" not in cols:
         db.execute("ALTER TABLE users ADD COLUMN birthday TEXT")
+    if "referral_rewarded" not in cols:
+        db.execute("ALTER TABLE users ADD COLUMN referral_rewarded INTEGER NOT NULL DEFAULT 0")
+        # Los referidos anteriores ya cobraron sus bonos al registrarse: que no los cobren dos veces.
+        db.execute("UPDATE users SET referral_rewarded=1 WHERE referred_by IS NOT NULL")
     for k, v in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
     if not db.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():
@@ -544,13 +572,7 @@ def register():
     uid = cur.lastrowid
     if setting_int("welcome_bonus"):
         add_points(db, uid, setting_int("welcome_bonus"), "bienvenida", "Bono de bienvenida")
-    if referrer:
-        if setting_int("referral_bonus_referred"):
-            add_points(db, uid, setting_int("referral_bonus_referred"), "referido",
-                       f"Bono por registrarte con el código de {referrer['name']}")
-        if setting_int("referral_bonus_referrer"):
-            add_points(db, referrer["id"], setting_int("referral_bonus_referrer"), "referido",
-                       f"Bono por referir a {name}")
+    # Los bonos de referido se entregan en la primera visita pagada del invitado (ver reward_referral).
     db.commit()
     session.clear()
     session["user_id"] = uid
@@ -591,7 +613,8 @@ def account():
             "SELECT r.*, w.name AS reward_name FROM redemptions r JOIN rewards w ON w.id=r.reward_id"
             " WHERE r.user_id=? ORDER BY r.id DESC LIMIT 20", (uid,))),
         "referrals": rows(db.execute(
-            "SELECT name, created_at FROM users WHERE referred_by=? ORDER BY id DESC", (uid,))),
+            "SELECT name, created_at, referral_rewarded AS rewarded FROM users WHERE referred_by=? ORDER BY id DESC",
+            (uid,))),
         "settings": all_settings(),
     })
 
@@ -756,7 +779,7 @@ def admin_client_detail(uid):
             "SELECT r.*, w.name AS reward_name FROM redemptions r JOIN rewards w ON w.id=r.reward_id"
             " WHERE r.user_id=? ORDER BY r.id DESC", (uid,))),
         "referrals": rows(db.execute(
-            "SELECT id, name, created_at FROM users WHERE referred_by=?", (uid,))),
+            "SELECT id, name, created_at, referral_rewarded AS rewarded FROM users WHERE referred_by=?", (uid,))),
         "points_per_dollar": setting_int("points_per_dollar"),
     })
 

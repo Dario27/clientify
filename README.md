@@ -76,7 +76,7 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 ## Reglas del programa
 
 - **Registro:** el bono de bienvenida es de 5 pts.
-- **Referidos:** cada cliente tiene su enlace `/registro?ref=CODIGO`. Quien refiere gana +10 y el nuevo cliente +5 extra.
+- **Referidos:** cada cliente tiene su enlace `/registro?ref=CODIGO`. Quien refiere gana +10 y el nuevo cliente +5 extra, pero solo cuando el invitado hace su primera visita pagada (opcionalmente de un monto mínimo), para que crear cuentas falsas no rinda.
 - **Acumulación:** el admin registra cada visita con el monto pagado y se da 1 pt por cada $1.
 - **Canje:** el cliente elige el beneficio y recibe un código `C-XXXXXX`. En la barbería, el admin busca el código en **Canjes** y lo marca como **Entregado**, o lo **Cancela** (se devuelven los puntos y el stock).
 - **Configuración:** todos los valores anteriores se editan desde *Configuración*.
@@ -99,7 +99,6 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 
 - Definir `SECRET_KEY` y `ADMIN_PASSWORD` propios en el `.env` del servidor y poner `FLASK_DEBUG=0`.
 - Agregar CSRF, límite de intentos de login y recuperación de contraseña.
-- Anti-fraude de referidos, por ejemplo entregar el bono tras la primera visita pagada.
 - Usar gunicorn/waitress con HTTPS y migrar a PostgreSQL cuando crezca.
 
 Developer: Steven Chilan
