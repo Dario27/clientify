@@ -47,6 +47,22 @@ export default function Settings() {
             </Box>
             <Divider />
             <Box>
+              <Typography variant="subtitle2" sx={{ mb: 2 }}>Vencimiento de puntos</Typography>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <TextField
+                  label="Los puntos vencen a los" type="number" value={form.points_expiry_months} onChange={set('points_expiry_months')}
+                  slotProps={{ input: { endAdornment: <InputAdornment position="end">meses</InputAdornment> }, htmlInput: { min: 0 } }}
+                  helperText="Con 0 no vencen. Al activarlo, vencen de inmediato los puntos ganados hace más tiempo."
+                />
+                <TextField
+                  label="Avisar con" type="number" value={form.expiry_warning_days} onChange={set('expiry_warning_days')}
+                  slotProps={{ input: { endAdornment: <InputAdornment position="end">días</InputAdornment> }, htmlInput: { min: 0 } }}
+                  helperText="De anticipación al cliente"
+                />
+              </Stack>
+            </Box>
+            <Divider />
+            <Box>
               <Typography variant="subtitle2" sx={{ mb: 2 }}>Cumpleaños</Typography>
               <Stack spacing={2}>
                 <TextField

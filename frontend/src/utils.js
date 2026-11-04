@@ -47,6 +47,7 @@ export const TX_LABELS = {
   reembolso: 'Devolución',
   ajuste: 'Ajuste',
   cumpleanos: 'Cumpleaños',
+  vencimiento: 'Vencimiento',
 }
 
 export const initials = (name = '') =>

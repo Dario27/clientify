@@ -3,6 +3,7 @@ Clientify — API de fidelización por puntos para barberías.
 Flask + SQLite. Ejecutar:  python app.py   ->  API en http://localhost:5000/api
 Si existe ../frontend/dist (npm run build), también sirve la webapp React.
 """
+import calendar
 import os
 import re
 import secrets
@@ -44,6 +45,8 @@ DEFAULT_SETTINGS = {
     "slot_minutes": "30",
     "booking_days_ahead": "14",
     "max_active_appointments": "3",
+    "points_expiry_months": "0",  # 0 = los puntos no vencen
+    "expiry_warning_days": "30",  # con cuántos días de anticipación se avisa al cliente
     "appointment_message": "Hola {nombre}, te recordamos tu turno en {negocio}: {servicio}, {fecha} a las {hora}. "
                            "Si no puedes venir, avísanos para liberar el horario.",
 }
@@ -189,6 +192,98 @@ def add_points(db, user_id, points, type_, description, created_by=None):
     db.execute(
         "INSERT INTO transactions (user_id, type, points, description, created_by, created_at)"
         " VALUES (?,?,?,?,?,?)", (user_id, type_, points, description, created_by, now()))
+
+
+def add_months(d, months):
+    """Suma meses a una fecha; si el día no existe en el mes de llegada usa el último (31 ene + 1 mes = 28 feb)."""
+    year, month = divmod(d.month - 1 + months, 12)
+    year += d.year
+    return d.replace(year=year, month=month + 1, day=min(d.day, calendar.monthrange(year, month + 1)[1]))
+
+
+def _when(text):
+    return datetime.strptime(text[:16], "%Y-%m-%d %H:%M")
+
+
+def _consume(lots, amount):
+    """Descuenta `amount` puntos de los lotes, empezando por el más antiguo."""
+    while amount > 0 and lots:
+        take = min(amount, lots[0][0])
+        lots[0][0] -= take
+        amount -= take
+        if not lots[0][0]:
+            lots.pop(0)
+
+
+def open_lots(db, user_id):
+    """Puntos ganados que aún no se gastaron ni vencieron, del más antiguo al más nuevo: [[puntos, fecha], ...].
+
+    Lo que se descuenta (canje, ajuste negativo, vencimiento) sale primero de lo más antiguo. Los lotes siempre
+    suman como mucho el saldo: si el historial y el saldo no coinciden, manda el saldo.
+    """
+    lots = []
+    for t in db.execute("SELECT points, created_at FROM transactions WHERE user_id=? ORDER BY created_at, id",
+                        (user_id,)):
+        if t["points"] > 0:
+            lots.append([t["points"], t["created_at"]])
+        else:
+            _consume(lots, -t["points"])
+    balance = db.execute("SELECT points FROM users WHERE id=?", (user_id,)).fetchone()["points"]
+    _consume(lots, sum(p for p, _ in lots) - balance)
+    return lots
+
+
+def expire_points(db, user_id):
+    """Da de baja los puntos que cumplieron `points_expiry_months` desde que se ganaron. Devuelve los vencidos."""
+    months = setting_int("points_expiry_months")
+    if months <= 0:
+        return 0
+
+    def due():
+        limit = datetime.now()
+        return sum(p for p, at in open_lots(db, user_id) if add_months(_when(at), months) <= limit)
+
+    if due() <= 0:
+        return 0
+    if not db.in_transaction:
+        db.execute("BEGIN IMMEDIATE")  # dos peticiones a la vez no deben vencer los mismos puntos dos veces
+    balance = db.execute("SELECT points FROM users WHERE id=?", (user_id,)).fetchone()["points"]
+    expired = min(due(), balance)
+    if expired > 0:
+        add_points(db, user_id, -expired, "vencimiento", f"Vencieron {expired} pts ganados hace más de {months} meses")
+    db.commit()
+    return max(expired, 0)
+
+
+def expiring_soon(db, user_id):
+    """Puntos que vencen dentro de `expiry_warning_days` y la fecha del primero, o None."""
+    months, days = setting_int("points_expiry_months"), setting_int("expiry_warning_days")
+    if months <= 0 or days <= 0:
+        return None
+    limit = datetime.now() + timedelta(days=days)
+    soon = [(p, add_months(_when(at), months)) for p, at in open_lots(db, user_id)]
+    soon = [(p, d) for p, d in soon if d <= limit]
+    if not soon:
+        return None
+    return {"points": sum(p for p, _ in soon), "date": min(d for _, d in soon).strftime("%Y-%m-%d")}
+
+
+def sweep_expirations(db):
+    """Vence los puntos de todos los clientes, como mucho una vez al día (no hay tarea programada)."""
+    if setting_int("points_expiry_months") <= 0 or setting("last_expiry_sweep") == date.today().isoformat():
+        return
+    for r in db.execute("SELECT id FROM users WHERE role='client' AND points > 0").fetchall():
+        expire_points(db, r["id"])
+    db.execute("INSERT INTO settings (key, value) VALUES ('last_expiry_sweep', ?)"
+               " ON CONFLICT(key) DO UPDATE SET value=excluded.value", (date.today().isoformat(),))
+    db.commit()
+
+
+@app.before_request
+def expire_before_admin_views():
+    """Que los saldos, rankings y listas del admin ya descuenten lo vencido."""
+    if request.path.startswith("/api/admin/") and session.get("user_id"):
+        sweep_expirations(get_db())
 
 
 def public_user(u):
@@ -469,6 +564,7 @@ def register():
 def account():
     db = get_db()
     uid = current_user()["id"]
+    expire_points(db, uid)
     u = db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
     if u["birthday"] and u["birthday"][5:7] == datetime.now().strftime("%m"):
         if grant_birthday_bonus(db, u):  # una vez al año, la primera vez que abre la app en su mes
@@ -482,6 +578,7 @@ def account():
         (uid, (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M"))).fetchone()
     return jsonify({
         "birthday_gift": recent["points"] if recent else 0,
+        "expiring": expiring_soon(db, uid),
         "next_appointment": row(db.execute(
             "SELECT a.id, a.start_at, a.end_at, s.name AS service_name FROM appointments a"
             " JOIN services s ON s.id=a.service_id WHERE a.user_id=? AND a.status='reservado'"
@@ -509,6 +606,7 @@ def redeem(reward_id):
         return err("Ese beneficio ya no está disponible.")
     if reward["stock"] is not None and reward["stock"] <= 0:
         return err("Ese producto está agotado por ahora.")
+    expire_points(db, uid)  # lo vencido no se puede canjear
     points = db.execute("SELECT points FROM users WHERE id=?", (uid,)).fetchone()["points"]
     if points < reward["points_cost"]:
         return err(f"Te faltan {reward['points_cost'] - points} pts para «{reward['name']}».")
@@ -588,6 +686,7 @@ def admin_clients():
 
 
 def _client_or_404(uid):
+    expire_points(get_db(), uid)  # el saldo que ve el admin ya descuenta lo vencido
     return get_db().execute("SELECT * FROM users WHERE id=? AND role='client'", (uid,)).fetchone()
 
 
