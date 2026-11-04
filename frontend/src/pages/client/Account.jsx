@@ -150,7 +150,8 @@ function ReferralCard({ code, referrals, settings }) {
       <CardContent sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ mb: 0.5 }}>Invita y gana</Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-          Por cada amigo que se registre con tu enlace, tú ganas{' '}
+          Cuando un amigo que se registre con tu enlace haga su primera visita
+          {settings.referral_min_spend > 0 && ` (de al menos $${settings.referral_min_spend})`}, tú ganas{' '}
           <Box component="strong" sx={{ color: 'primary.main' }}>{settings.referral_bonus_referrer} pts</Box> y tu amigo{' '}
           <Box component="strong" sx={{ color: 'primary.main' }}>{settings.referral_bonus_referred} pts</Box> extra.
         </Typography>
@@ -175,10 +176,16 @@ function ReferralCard({ code, referrals, settings }) {
             <Typography sx={{ fontFamily: 'ui-monospace, monospace', fontWeight: 700, color: 'primary.main', letterSpacing: 1 }}>{code}</Typography>
           </Box>
           <Box sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" color="text.secondary">{referrals.length} referido{referrals.length !== 1 && 's'}</Typography>
+            <Typography variant="caption" color="text.secondary">{referrals.length} referido{referrals.length !== 1 && 's'}
+              {referrals.some((r) => !r.rewarded) && ` · ${referrals.filter((r) => !r.rewarded).length} por confirmar`}
+            </Typography>
             {referrals.length > 0 && (
               <AvatarGroup max={5} sx={{ '& .MuiAvatar-root': { width: 28, height: 28, fontSize: 12, borderColor: brand.slate } }}>
-                {referrals.map((r, i) => <Tooltip key={i} title={r.name}><Avatar>{initials(r.name)}</Avatar></Tooltip>)}
+                {referrals.map((r, i) => (
+                  <Tooltip key={i} title={`${r.name} · ${r.rewarded ? 'ya ganaste el bono' : 'falta su primera visita'}`}>
+                    <Avatar sx={{ opacity: r.rewarded ? 1 : 0.45 }}>{initials(r.name)}</Avatar>
+                  </Tooltip>
+                ))}
               </AvatarGroup>
             )}
           </Box>

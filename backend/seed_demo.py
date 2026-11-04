@@ -32,6 +32,7 @@ with A.app.app_context():
         if ref:
             A.add_points(db, uid, A.setting_int("referral_bonus_referred"), "referido", "Bono por código de referido")
             A.add_points(db, ref, A.setting_int("referral_bonus_referrer"), "referido", f"Bono por referir a {name}")
+            db.execute("UPDATE users SET referral_rewarded=1 WHERE id=?", (uid,))  # estos bonos ya se entregaron
         for _ in range(random.randint(2, 7)):
             concept, price = random.choice(CONCEPTS)
             A.add_points(db, uid, price * A.setting_int("points_per_dollar"), "visita",

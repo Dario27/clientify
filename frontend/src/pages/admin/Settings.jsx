@@ -41,10 +41,15 @@ export default function Settings() {
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 2 }}>Referidos</Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField label="Para quien refiere" type="number" value={form.referral_bonus_referrer} onChange={set('referral_bonus_referrer')} slotProps={pts} />
-                <TextField label="Para el nuevo cliente" type="number" value={form.referral_bonus_referred} onChange={set('referral_bonus_referred')} slotProps={pts} helperText="Se suma al bono de bienvenida" />
+                <TextField label="Para quien refiere" type="number" value={form.referral_bonus_referrer} onChange={set('referral_bonus_referrer')} slotProps={pts} helperText="Cuando el invitado hace su primera visita" />
+                <TextField label="Para el nuevo cliente" type="number" value={form.referral_bonus_referred} onChange={set('referral_bonus_referred')} slotProps={pts} helperText="En su primera visita" />
               </Stack>
             </Box>
+            <TextField
+              label="Gasto mínimo de la primera visita" type="number" value={form.referral_min_spend} onChange={set('referral_min_spend')}
+              slotProps={{ input: { startAdornment: <InputAdornment position="start">$</InputAdornment> }, htmlInput: { min: 0 } }}
+              helperText="Los bonos de referido se entregan en la primera visita de al menos este monto. Con 0 sirve cualquier visita pagada."
+            />
             <Divider />
             <Box>
               <Typography variant="subtitle2" sx={{ mb: 2 }}>Vencimiento de puntos</Typography>
