@@ -13,6 +13,7 @@ import Reactivar from './pages/admin/Reactivar'
 import Agenda from './pages/admin/Agenda'
 import Services from './pages/admin/Services'
 import Turnos from './pages/client/Turnos'
+import Perfil from './pages/client/Perfil'
 import ClientDetail from './pages/admin/ClientDetail'
 import Redemptions from './pages/admin/Redemptions'
 import Rewards from './pages/admin/Rewards'
@@ -43,6 +44,7 @@ export default function App() {
       <Route element={<RequireRole role="client"><ClientLayout /></RequireRole>}>
         <Route path="/mi-cuenta" element={<Account />} />
         <Route path="/turnos" element={<Turnos />} />
+        <Route path="/perfil" element={<Perfil />} />
       </Route>
       <Route path="/admin" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
         <Route index element={<Dashboard />} />
