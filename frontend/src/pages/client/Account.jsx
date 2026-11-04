@@ -19,6 +19,7 @@ import EmptyState from '../../components/EmptyState'
 import ClientQr from '../../components/ClientQr'
 import CakeRounded from '@mui/icons-material/CakeRounded'
 import EventRounded from '@mui/icons-material/EventRounded'
+import HourglassBottomRounded from '@mui/icons-material/HourglassBottomRounded'
 import { Link as RouterLink } from 'react-router-dom'
 import { fmtDay, fmtDate, initials } from '../../utils'
 import { brand } from '../../theme'
@@ -198,7 +199,7 @@ export default function Account() {
   if (loading) return <Stack spacing={2}><Skeleton variant="rounded" height={180} /><Skeleton variant="rounded" height={260} /></Stack>
   if (error) return <Alert severity="error">{error}</Alert>
 
-  const { user, rewards, history, redemptions, referrals, settings, birthday_gift: gift, next_appointment: next } = data
+  const { user, rewards, history, redemptions, referrals, settings, birthday_gift: gift, next_appointment: next, expiring } = data
   const pending = redemptions.filter((r) => r.status === 'pendiente')
 
   const doRedeem = async () => {
@@ -222,6 +223,11 @@ export default function Account() {
           ¡Este mes es tu cumpleaños, {user.name.split(' ')[0]}! Te regalamos <strong>{gift} pts</strong>.
         </Alert>
       )}
+      {expiring && (
+        <Alert icon={<HourglassBottomRounded />} severity="warning" sx={{ mb: 3 }}>
+          Tienes <strong>{expiring.points} pts</strong> que vencen el <strong>{fmtDate(expiring.date, false)}</strong>. Canjéalos antes de esa fecha.
+        </Alert>
+      )}
       <Alert
         icon={<EventRounded />} severity="info" variant="outlined" sx={{ mb: 3, alignItems: 'center' }}
         action={<Button component={RouterLink} to="/turnos" size="small" color="inherit">{next ? 'Ver turnos' : 'Reservar'}</Button>}
@@ -239,7 +245,10 @@ export default function Account() {
         </Alert>
       )}
 
-      <Typography variant="h6" sx={{ mb: 2 }}>Canjea tus puntos</Typography>
+      <Typography variant="h6" sx={{ mb: settings.points_expiry_months > 0 ? 0.5 : 2 }}>Canjea tus puntos</Typography>
+      {settings.points_expiry_months > 0 && (
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>Los puntos vencen a los {settings.points_expiry_months} meses de ganarlos.</Typography>
+      )}
       {rewards.length ? (
         <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', md: 'repeat(3, 1fr)' }, mb: 4 }}>
           {rewards.map((r) => <RewardCard key={r.id} reward={r} points={user.points} onRedeem={setConfirm} />)}
