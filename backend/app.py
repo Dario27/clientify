@@ -363,15 +363,34 @@ def logout():
 @app.put("/api/profile")
 @client_required
 def update_profile():
-    """El cliente completa o corrige su fecha de cumpleaños."""
-    birthday = clean_birthday(body().get("birthday"))
-    if birthday is None:
-        return err("La fecha de cumpleaños no es válida.")
+    """El cliente edita su nombre, teléfono y fecha de cumpleaños. Solo cambia los campos que vienen."""
+    d = body()
     db = get_db()
-    uid = current_user()["id"]
-    db.execute("UPDATE users SET birthday=? WHERE id=?", (birthday or None, uid))
-    db.commit()
-    return jsonify(public_user(db.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()))
+    u = current_user()
+    fields = {}
+    if "name" in d:
+        name = (d["name"] or "").strip()
+        if len(name) < 2:
+            return err("Ingresa tu nombre.")
+        fields["name"] = name
+    if "phone" in d:
+        phone = (d["phone"] or "").strip()
+        if phone and not re.fullmatch(r"[0-9+()\-\s]{7,20}", phone):
+            return err("Ingresa un teléfono válido, solo con números.")
+        if phone and phone != (u["phone"] or "") and db.execute(
+                "SELECT 1 FROM users WHERE phone=? AND role='client' AND id!=?", (phone, u["id"])).fetchone():
+            return err("Ya existe un cliente con ese teléfono.")
+        fields["phone"] = phone
+    if "birthday" in d:
+        birthday = clean_birthday(d["birthday"])
+        if birthday is None:
+            return err("La fecha de cumpleaños no es válida.")
+        fields["birthday"] = birthday or None
+    if fields:  # las claves salen de un conjunto fijo, no de la petición
+        db.execute("UPDATE users SET " + ", ".join(f"{k}=?" for k in fields) + " WHERE id=?",
+                   (*fields.values(), u["id"]))
+        db.commit()
+    return jsonify(public_user(db.execute("SELECT * FROM users WHERE id=?", (u["id"],)).fetchone()))
 
 
 @app.post("/api/password")
