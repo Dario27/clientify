@@ -57,6 +57,21 @@ docker compose exec backend python seed_demo.py   # opcional: datos de demo
 - `data/`: carpeta montada en el contenedor con la base `clientify.db`; sobrevive a rebuilds.
 - Para cambiar el puerto: `APP_PORT=9000 docker compose up -d`.
 
+### HTTPS con dominio propio (producción)
+
+Caddy se pone delante, saca y renueva solo el certificado de Let's Encrypt y redirige HTTP a HTTPS. Pasos:
+
+1. Un registro DNS `A` del dominio (por ejemplo `clientify.midominio.com`) apuntando a la IP del servidor, y los puertos 80 y 443 abiertos.
+2. En el `.env` de la raíz (junto a `docker-compose.yml`):
+   ```
+   APP_DOMAIN=clientify.midominio.com
+   APP_PORT=127.0.0.1:8085   # el frontend deja libre el 80 para Caddy
+   COOKIE_SECURE=1           # la cookie de sesión solo viaja por HTTPS
+   ```
+3. `docker compose --profile https up -d --build`
+
+Sin el perfil `https` todo funciona como antes (`http://localhost:8085`). No borres el volumen `caddy_data`: guarda los certificados.
+
 ## Producción simple (un solo servidor)
 
 ```bash
@@ -99,7 +114,7 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 
 - Definir `SECRET_KEY` y `ADMIN_PASSWORD` propios en el `.env` del servidor y poner `FLASK_DEBUG=0`.
 - Agregar CSRF, límite de intentos de login y recuperación de contraseña.
-- Usar gunicorn/waitress con HTTPS y migrar a PostgreSQL cuando crezca.
+- Migrar a PostgreSQL cuando crezca.
 
 Developer: Steven Chilan
 Otros Authors: Jeff Pino

@@ -60,3 +60,4 @@ La cookie de sesión es `SameSite=Lax` y el backend **no tiene CORS**. Todo func
 
 ### Docker
 `docker-compose.yml` levanta `backend` (Gunicorn con `--preload` para que `init_db()` corra una sola vez, no expuesto afuera) y `frontend` (build de Vite servido por Nginx en `${APP_PORT:-8085}`). `./data` se monta en `/data` del backend.
+- HTTPS (producción): el servicio `caddy` (perfil `https`, `Caddyfile`) saca el certificado de Let's Encrypt para `APP_DOMAIN` y hace de proxy hacia `frontend:80`; el `.env` de la raíz debe tener `APP_DOMAIN`, `APP_PORT=127.0.0.1:8085` (libera el 80) y `COOKIE_SECURE=1` (`SESSION_COOKIE_SECURE` del backend). Sin el perfil todo sigue en `http://localhost:8085`. No borrar el volumen `caddy_data` (certificados).
