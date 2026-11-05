@@ -3,6 +3,8 @@ import { Box, CircularProgress } from '@mui/material'
 import { useAuth } from './context/AuthContext'
 import Login from './pages/Login'
 import Register from './pages/Register'
+import Recuperar from './pages/Recuperar'
+import Restablecer from './pages/Restablecer'
 import ClientLayout from './components/ClientLayout'
 import AdminLayout from './components/AdminLayout'
 import Account from './pages/client/Account'
@@ -41,6 +43,9 @@ export default function App() {
     <Routes>
       <Route path="/login" element={user ? <Navigate to={home(user)} replace /> : <Login />} />
       <Route path="/registro" element={user ? <Navigate to={home(user)} replace /> : <Register />} />
+      <Route path="/recuperar" element={user ? <Navigate to={home(user)} replace /> : <Recuperar />} />
+      {/* El enlace del correo debe funcionar aunque haya otra sesión abierta */}
+      <Route path="/restablecer" element={<Restablecer />} />
       <Route element={<RequireRole role="client"><ClientLayout /></RequireRole>}>
         <Route path="/mi-cuenta" element={<Account />} />
         <Route path="/turnos" element={<Turnos />} />
