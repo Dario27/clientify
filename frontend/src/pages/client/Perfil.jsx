@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext'
 import { useToast } from '../../context/ToastContext'
 import PageHeader from '../../components/PageHeader'
 import ChangePasswordDialog from '../../components/ChangePasswordDialog'
+import InstallApp from '../../components/InstallApp'
 import { todayISO } from '../../utils'
 
 export default function Perfil() {
@@ -69,6 +70,8 @@ export default function Perfil() {
             <Button variant="outlined" startIcon={<KeyRounded />} onClick={() => setPwd(true)}>Cambiar clave</Button>
           </CardContent>
         </Card>
+
+        <InstallApp />
       </Box>
       <ChangePasswordDialog open={pwd} onClose={() => setPwd(false)} />
     </>

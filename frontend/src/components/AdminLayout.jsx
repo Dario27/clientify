@@ -16,8 +16,10 @@ import TuneRounded from '@mui/icons-material/TuneRounded'
 import LogoutRounded from '@mui/icons-material/LogoutRounded'
 import KeyRounded from '@mui/icons-material/KeyRounded'
 import MenuRounded from '@mui/icons-material/MenuRounded'
+import InstallMobileRounded from '@mui/icons-material/InstallMobileRounded'
 import { useAuth } from '../context/AuthContext'
 import useApi from '../hooks/useApi'
+import useInstallPrompt from '../hooks/useInstallPrompt'
 import Logo from './Logo'
 import ChangePasswordDialog from './ChangePasswordDialog'
 import { initials } from '../utils'
@@ -41,6 +43,7 @@ export default function AdminLayout() {
   const [open, setOpen] = useState(false)
   const [pwd, setPwd] = useState(false)
   const { user, logout } = useAuth()
+  const { canInstall, install } = useInstallPrompt()
   const { data: pub } = useApi('/public')
   const { pathname } = useLocation()
 
@@ -62,6 +65,12 @@ export default function AdminLayout() {
           </ListItemButton>
         ))}
       </List>
+      {canInstall && (
+        <ListItemButton onClick={install} sx={{ borderRadius: 2, mx: 1.5, mb: 1, color: 'text.secondary' }}>
+          <ListItemIcon sx={{ minWidth: 38, color: 'inherit' }}><InstallMobileRounded /></ListItemIcon>
+          <ListItemText primary="Instalar app" slotProps={{ primary: { fontWeight: 600, fontSize: 14 } }} />
+        </ListItemButton>
+      )}
       <Divider />
       <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
         <Avatar sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', width: 34, height: 34, fontSize: 14, fontWeight: 700 }}>

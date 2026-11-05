@@ -72,6 +72,14 @@ Caddy se pone delante, saca y renueva solo el certificado de Let's Encrypt y red
 
 Sin el perfil `https` todo funciona como antes (`http://localhost:8085`). No borres el volumen `caddy_data`: guarda los certificados.
 
+### App instalable (PWA)
+
+La webapp se puede instalar en el celular o el computador (manifiesto, íconos y service worker en `frontend/public/`). Requiere HTTPS, o `localhost` para probarla. En Android y Chrome aparece el botón **Instalar** (en el perfil del cliente y en el menú del admin); en iPhone, desde Safari: Compartir → «Agregar a pantalla de inicio».
+
+- Sin conexión se muestra una página que avisa que no hay internet. Las llamadas a `/api` nunca se guardan en caché, así que no se ven datos viejos.
+- El service worker solo se registra en el build de producción (`npm run build`), no en `npm run dev`. Para probarlo en local: `npm run build && npm run preview` y abrir `http://localhost:4173`.
+- Si cambias los archivos de caché de `public/sw.js`, sube `VERSION` para que los navegadores descarten la caché anterior.
+
 ## Producción simple (un solo servidor)
 
 ```bash
