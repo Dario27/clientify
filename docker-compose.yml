@@ -4,6 +4,8 @@ services:
     env_file: ./backend/.env
     environment:
       CLIENTIFY_DB: /data/clientify.db
+      # 1 cuando se sirve por HTTPS: la cookie de sesión solo viaja cifrada
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -18,3 +20,26 @@ services:
     depends_on:
       - backend
     restart: unless-stopped
+
+  # HTTPS con dominio propio. Solo corre con el perfil: `docker compose --profile https up -d --build`.
+  # Necesita APP_DOMAIN, los puertos 80 y 443 libres y el DNS apuntando al servidor. Con este perfil el
+  # frontend ya no debe ocupar el 80: APP_PORT=127.0.0.1:8085 y COOKIE_SECURE=1 en el .env de la raíz.
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data      # certificados: no borrar, Let's Encrypt limita las emisiones
+      - caddy_config:/config
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
