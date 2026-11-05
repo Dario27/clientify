@@ -4,17 +4,22 @@ Flask + SQLite. Ejecutar:  python app.py   ->  API en http://localhost:5000/api
 Si existe ../frontend/dist (npm run build), también sirve la webapp React.
 """
 import calendar
+import hashlib
 import os
 import re
 import secrets
 import sqlite3
+import threading
 from datetime import date, datetime, timedelta
 from functools import wraps
+from html import escape as html_escape
 from urllib.parse import quote
 
 from dotenv import load_dotenv
 from flask import Flask, g, jsonify, request, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
+
+import mailer
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(BASE_DIR, ".env"))
@@ -56,6 +61,9 @@ TEXT_SETTINGS = ["business_name", "reactivation_message", "birthday_message", "o
                  "open_days", "appointment_message"]
 MIN_ONE_SETTINGS = ["slot_minutes", "booking_days_ahead", "max_active_appointments"]
 DAYS_ES = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+# Recuperación de clave: parámetros de seguridad, no reglas del programa, por eso no son ajustes.
+RESET_TTL_MINUTES = 60    # cuánto vale el enlace del correo
+RESET_MAX_PER_HOUR = 3    # pedidos por cuenta y hora: que nadie use esto para llenar de correos a un cliente
 INT_SETTINGS = [k for k in DEFAULT_SETTINGS if k not in TEXT_SETTINGS]
 
 SCHEMA = """
@@ -121,6 +129,14 @@ CREATE TABLE IF NOT EXISTS appointments (
     created_by INTEGER REFERENCES users(id),
     created_at TEXT NOT NULL,
     resolved_at TEXT
+);
+CREATE TABLE IF NOT EXISTS password_resets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
 );
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
@@ -532,6 +548,87 @@ def change_password():
         return err("La nueva clave debe ser distinta de la actual.")
     db = get_db()
     db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new), u["id"]))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+def _app_url():
+    """Base de los enlaces de los correos. En producción sale de APP_URL: nunca del Host de la petición,
+    porque un Host manipulado envenenaría el enlace de recuperación."""
+    url = os.environ.get("APP_URL", "").strip().rstrip("/")
+    if url or os.environ.get("EMAIL_BACKEND", "console") != "console":
+        return url or None
+    return request.host_url.rstrip("/")  # desarrollo: el correo solo queda en el log
+
+
+def _reset_email(name, link):
+    business = setting("business_name")
+    first = (name.split() or [""])[0]
+    subject = f"Restablece tu clave de {business}"
+    text = (f"Hola {first},\n\nRecibimos un pedido para restablecer tu clave de {business}. Abre este enlace para elegir "
+            f"una nueva (vale {RESET_TTL_MINUTES} minutos y se puede usar una sola vez):\n\n{link}\n\n"
+            "Si no fuiste tú, ignora este correo: tu clave actual sigue igual.\n")
+    html = (f'<p>Hola {html_escape(first)},</p><p>Recibimos un pedido para restablecer tu clave de <strong>{html_escape(business)}</strong>. '
+            f'Toca el botón para elegir una nueva; vale {RESET_TTL_MINUTES} minutos y se puede usar una sola vez.</p>'
+            f'<p><a href="{html_escape(link)}" style="display:inline-block;background:#E5A93B;color:#0F172A;font-weight:600;'
+            f'text-decoration:none;padding:12px 24px;border-radius:8px">Elegir una nueva clave</a></p>'
+            f'<p style="color:#64748B;font-size:13px">Si el botón no funciona, copia este enlace en tu navegador:<br>{html_escape(link)}</p>'
+            '<p style="color:#64748B;font-size:13px">Si no fuiste tú, ignora este correo: tu clave actual sigue igual.</p>')
+    return subject, text, html
+
+
+@app.post("/api/password/forgot")
+def password_forgot():
+    """Pide el enlace para restablecer la clave. Responde siempre lo mismo, exista o no el correo, para no
+    revelar quién tiene cuenta. Solo clientes con correo real: el admin y los correos @sin-correo.local quedan fuera."""
+    email = (body().get("email") or "").strip().lower()
+    if "@" not in email:
+        return err("Ingresa un correo válido.")
+    db = get_db()
+    u = db.execute("SELECT id, name FROM users WHERE email=? AND role='client'", (email,)).fetchone()
+    base = _app_url()
+    if u and base and not email.endswith("@sin-correo.local"):
+        hour_ago = (datetime.now() - timedelta(hours=1)).strftime("%Y-%m-%d %H:%M")
+        recent = db.execute("SELECT COUNT(*) FROM password_resets WHERE user_id=? AND created_at >= ?",
+                            (u["id"], hour_ago)).fetchone()[0]
+        if recent < RESET_MAX_PER_HOUR:
+            token = secrets.token_urlsafe(32)
+            expires = (datetime.now() + timedelta(minutes=RESET_TTL_MINUTES)).strftime("%Y-%m-%d %H:%M")
+            week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d %H:%M")
+            db.execute("DELETE FROM password_resets WHERE created_at < ?", (week_ago,))
+            db.execute("UPDATE password_resets SET used_at=? WHERE user_id=? AND used_at IS NULL", (now(), u["id"]))
+            # Solo se guarda el hash: con la base en la mano no se puede armar un enlace válido.
+            db.execute("INSERT INTO password_resets (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
+                       (u["id"], hashlib.sha256(token.encode()).hexdigest(), now(), expires))
+            db.commit()
+            # El token va en el fragmento (#): no llega a los logs del servidor ni a otros sitios por el Referer.
+            subject, text, html = _reset_email(u["name"], f"{base}/restablecer#token={token}")
+            # En un hilo aparte, para que responder no tarde distinto si el correo existe (no filtrar por tiempo).
+            threading.Thread(target=mailer.send_email, args=(email, subject, text, html, setting("business_name")),
+                             daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/password/reset")
+def password_reset():
+    """Elige una clave nueva con el enlace del correo: un solo uso y vence en RESET_TTL_MINUTES."""
+    d = body()
+    token, new = (d.get("token") or "").strip(), d.get("password") or ""
+    if len(new) < 6:
+        return err("La clave debe tener al menos 6 caracteres.")
+    invalid = "El enlace no es válido o ya venció. Pide uno nuevo."
+    db = get_db()
+    r = db.execute(
+        "SELECT r.id, r.user_id FROM password_resets r JOIN users u ON u.id=r.user_id"
+        " WHERE r.token_hash=? AND r.used_at IS NULL AND r.expires_at >= ? AND u.role='client'",
+        (hashlib.sha256(token.encode()).hexdigest(), now())).fetchone() if token else None
+    if not r:
+        return err(invalid)
+    # La marca va primero y con condición: dos usos a la vez no pueden cambiar la clave dos veces.
+    if db.execute("UPDATE password_resets SET used_at=? WHERE id=? AND used_at IS NULL", (now(), r["id"])).rowcount != 1:
+        return err(invalid)
+    db.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new), r["user_id"]))
+    db.execute("UPDATE password_resets SET used_at=? WHERE user_id=? AND used_at IS NULL", (now(), r["user_id"]))
     db.commit()
     return jsonify({"ok": True})
 

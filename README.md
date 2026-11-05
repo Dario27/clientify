@@ -72,6 +72,13 @@ Caddy se pone delante, saca y renueva solo el certificado de Let's Encrypt y red
 
 Sin el perfil `https` todo funciona como antes (`http://localhost:8085`). No borres el volumen `caddy_data`: guarda los certificados.
 
+### Recuperar la clave por correo
+
+En el login, «¿Olvidaste tu clave?» envía un enlace de un solo uso (vale 60 minutos, máximo 3 pedidos por hora y cuenta) que abre `/restablecer`. Solo para clientes con correo real: el admin queda fuera y su clave se cambia desde el botón de la llave. Un administrador también puede restablecer la de un cliente desde su ficha.
+
+- **Desarrollo:** no se envía nada. El correo (con el enlace) queda en el log del backend (`EMAIL_BACKEND=console`, por defecto). Como el backend corre en el puerto 5000 y la app en el 5173, para que el enlace del log abra el frontend pon `APP_URL=http://localhost:5173` en `backend/.env`.
+- **Producción:** Amazon SES. En el `.env` de la raíz: `EMAIL_BACKEND=ses`, `EMAIL_FROM=no-responder@tu-dominio`, `APP_URL=https://tu-dominio` (el enlace se arma con esto, nunca con el Host de la petición), y opcionalmente `EMAIL_REPLY_TO` y `AWS_REGION`. El remitente debe estar verificado en SES (registros DKIM en el DNS) y la instancia necesita un rol de IAM que permita `ses:SendEmail`; no hacen falta claves en el `.env`. Mientras la cuenta de SES esté en modo prueba solo envía a direcciones verificadas.
+
 ### App instalable (PWA)
 
 La webapp se puede instalar en el celular o el computador (manifiesto, íconos y service worker en `frontend/public/`). Requiere HTTPS, o `localhost` para probarla. En Android y Chrome aparece el botón **Instalar** (en el perfil del cliente y en el menú del admin); en iPhone, desde Safari: Compartir → «Agregar a pantalla de inicio».

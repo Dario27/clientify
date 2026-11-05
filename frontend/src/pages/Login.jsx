@@ -27,6 +27,7 @@ export default function Login() {
             value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           <TextField label="Contraseña" type="password" autoComplete="current-password" required
             value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+          <Link component={RouterLink} to="/recuperar" variant="body2" sx={{ alignSelf: 'flex-end' }}>¿Olvidaste tu clave?</Link>
           <Button type="submit" variant="contained" size="large" disabled={busy}>Ingresar</Button>
         </Stack>
       </Box>
