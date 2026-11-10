@@ -5,6 +5,7 @@ import {
   Tooltip, Typography,
 } from '@mui/material'
 import PaidRounded from '@mui/icons-material/PaidRounded'
+import FileDownloadRounded from '@mui/icons-material/FileDownloadRounded'
 import ContentCutRounded from '@mui/icons-material/ContentCutRounded'
 import ReceiptLongRounded from '@mui/icons-material/ReceiptLongRounded'
 import PeopleAltRounded from '@mui/icons-material/PeopleAltRounded'
@@ -12,6 +13,7 @@ import useApi from '../../hooks/useApi'
 import PageHeader from '../../components/PageHeader'
 import StatCard from '../../components/StatCard'
 import EmptyState from '../../components/EmptyState'
+import { API_URL } from '../../api'
 import { fmtDate, fmtMoney } from '../../utils'
 import { brand } from '../../theme'
 
@@ -130,9 +132,12 @@ export default function Reportes() {
         title="Reportes"
         subtitle="Cómo va el negocio: ingresos, servicios y clientes que vuelven."
         action={
-          <ToggleButtonGroup exclusive size="small" color="primary" value={days} onChange={(_, v) => v && setDays(v)}>
-            {PERIODS.map(([d, label]) => <ToggleButton key={d} value={d} sx={{ px: 1.75 }}>{label}</ToggleButton>)}
-          </ToggleButtonGroup>
+          <Stack direction="row" spacing={1.5} sx={{ alignItems: 'center', flexWrap: 'wrap', rowGap: 1 }}>
+            <ToggleButtonGroup exclusive size="small" color="primary" value={days} onChange={(_, v) => v && setDays(v)}>
+              {PERIODS.map(([d, label]) => <ToggleButton key={d} value={d} sx={{ px: 1.75 }}>{label}</ToggleButton>)}
+            </ToggleButtonGroup>
+            <Button size="small" variant="outlined" startIcon={<FileDownloadRounded />} component="a" href={`${API_URL}/admin/export.xlsx?days=${days}`}>Excel</Button>
+          </Stack>
         }
       />
       {error && <Alert severity="error">{error}</Alert>}
