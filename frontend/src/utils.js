@@ -37,6 +37,8 @@ export function addDays(iso, n) {
   return isoOf(new Date(y, m - 1, d + n))
 }
 
+export const fmtMoney = (n) => `$${Number(n).toFixed(2)}`
+
 export const fmtPts = (n) => `${n > 0 ? '+' : ''}${n}`
 
 export const TX_LABELS = {

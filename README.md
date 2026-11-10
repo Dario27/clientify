@@ -110,6 +110,7 @@ cd ../backend && python app.py  # Flask sirve la API y la webapp en :5000
 - **Registro:** el bono de bienvenida es de 5 pts.
 - **Referidos:** cada cliente tiene su enlace `/registro?ref=CODIGO`. Quien refiere gana +10 y el nuevo cliente +5 extra, pero solo cuando el invitado hace su primera visita pagada (opcionalmente de un monto mínimo), para que crear cuentas falsas no rinda.
 - **Acumulación:** el admin registra cada visita con el monto pagado y se da 1 pt por cada $1.
+- **Reportes:** en **Reportes** (solo admin) se ven los ingresos de 7 días, 30 días, 3 meses o 1 año contra el período anterior, el ticket promedio, los servicios más vendidos y cuántos clientes vuelven (a 30 y 60 días). Se calcula con el monto de cada visita; las visitas anteriores se recuperan del texto de su descripción.
 - **Canje:** el cliente elige el beneficio y recibe un código `C-XXXXXX`. En la barbería, el admin busca el código en **Canjes** y lo marca como **Entregado**, o lo **Cancela** (se devuelven los puntos y el stock).
 - **Configuración:** todos los valores anteriores se editan desde *Configuración*.
 
