@@ -5,6 +5,7 @@ Si existe ../frontend/dist (npm run build), también sirve la webapp React.
 """
 import calendar
 import hashlib
+import io
 import os
 import re
 import secrets
@@ -16,7 +17,9 @@ from html import escape as html_escape
 from urllib.parse import quote
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request, send_from_directory, session
+from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
+from openpyxl import Workbook
+from openpyxl.styles import Font
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import mailer
@@ -1147,6 +1150,67 @@ def admin_reports():
                            "d90": sum(1 for x in since_last if 60 < x <= 90), "older": sum(1 for x in since_last if x > 90)},
         },
     })
+
+
+# ---------------------------------------------------------------- exportar a Excel
+def _sheet(wb, title, headers, data, widths, money_cols=()):
+    """Hoja con encabezado en negrita. Los textos se guardan siempre como texto: un nombre que empiece por
+    '=', '+', '-' o '@' no se evalúa como fórmula al abrir el archivo."""
+    ws = wb.create_sheet(title)
+    ws.append(headers)
+    for c in ws[1]:
+        c.font = Font(bold=True)
+    for row in data:
+        ws.append(row)
+        for c in ws[ws.max_row]:
+            if isinstance(c.value, str):
+                c.data_type = "s"
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = w
+    for col in money_cols:
+        for c in ws[chr(64 + col)][1:]:
+            c.number_format = "$#,##0.00"
+    ws.freeze_panes = "A2"
+    return ws
+
+
+@app.get("/api/admin/export.xlsx")
+@admin_required
+def admin_export():
+    """Excel con todos los clientes y las visitas de un período (`days`: 7, 30, 90, 365 o 0 = todas)."""
+    days = request.args.get("days", 0, type=int)
+    if days not in (0, 7, 30, 90, 365):
+        return err("Elige un período de 7, 30, 90 o 365 días, o 0 para todas las visitas.")
+    db = get_db()
+    since = (date.today() - timedelta(days=days - 1)).isoformat() if days else "0000-01-01"
+
+    clients = db.execute(
+        "SELECT u.name, u.email, u.phone, u.birthday, u.points, u.created_at, r.name AS referrer,"
+        " (SELECT COUNT(*) FROM transactions t WHERE t.user_id=u.id AND t.type='visita') AS visits,"
+        " (SELECT COALESCE(SUM(t.amount),0) FROM transactions t WHERE t.user_id=u.id AND t.type='visita') AS spent,"
+        " (SELECT MAX(t.created_at) FROM transactions t WHERE t.user_id=u.id AND t.type='visita') AS last_visit"
+        " FROM users u LEFT JOIN users r ON r.id=u.referred_by WHERE u.role='client' ORDER BY u.name COLLATE NOCASE").fetchall()
+    visits = db.execute(
+        "SELECT t.created_at, u.name, u.email, COALESCE(t.concept, t.description) AS concept, t.amount, t.points"
+        " FROM transactions t JOIN users u ON u.id=t.user_id"
+        " WHERE t.type='visita' AND substr(t.created_at,1,10) >= ? ORDER BY t.created_at DESC, t.id DESC", (since,)).fetchall()
+
+    real = lambda e: "" if (e or "").endswith("@sin-correo.local") else e
+    wb = Workbook()
+    wb.remove(wb.active)
+    _sheet(wb, "Clientes", ["Nombre", "Correo", "Teléfono", "Cumpleaños", "Puntos", "Visitas", "Total gastado", "Última visita", "Se registró", "Lo invitó"],
+           [[c["name"], real(c["email"]), c["phone"] or "", c["birthday"] or "", c["points"], c["visits"], round(c["spent"], 2),
+             c["last_visit"] or "", c["created_at"], c["referrer"] or ""] for c in clients],
+           [26, 30, 16, 13, 9, 9, 15, 18, 18, 22], money_cols=(7,))
+    _sheet(wb, "Visitas", ["Fecha", "Cliente", "Correo", "Servicio", "Monto", "Puntos"],
+           [[v["created_at"], v["name"], real(v["email"]), v["concept"] or "", v["amount"], v["points"]] for v in visits],
+           [18, 26, 30, 28, 12, 9], money_cols=(5,))
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    name = f"clientify-{date.today().isoformat()}.xlsx"
+    return send_file(buf, as_attachment=True, download_name=name,
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 # ---------------------------------------------------------------- reactivación y cumpleaños
