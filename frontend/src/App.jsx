@@ -13,6 +13,7 @@ import Clients from './pages/admin/Clients'
 import Scan from './pages/admin/Scan'
 import Reactivar from './pages/admin/Reactivar'
 import Agenda from './pages/admin/Agenda'
+import Reportes from './pages/admin/Reportes'
 import Services from './pages/admin/Services'
 import Turnos from './pages/client/Turnos'
 import Perfil from './pages/client/Perfil'
@@ -54,6 +55,7 @@ export default function App() {
       <Route path="/admin" element={<RequireRole role="admin"><AdminLayout /></RequireRole>}>
         <Route index element={<Dashboard />} />
         <Route path="agenda" element={<Agenda />} />
+        <Route path="reportes" element={<Reportes />} />
         <Route path="escanear" element={<Scan />} />
         <Route path="reactivar" element={<Reactivar />} />
         <Route path="clientes" element={<Clients />} />

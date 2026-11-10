@@ -36,7 +36,7 @@ with A.app.app_context():
         for _ in range(random.randint(2, 7)):
             concept, price = random.choice(CONCEPTS)
             A.add_points(db, uid, price * A.setting_int("points_per_dollar"), "visita",
-                         f"{concept} (${price:.2f})", admin)
+                         f"{concept} (${price:.2f})", admin, amount=price, concept=concept)
     # Fechas repartidas en los últimos 14 días para que el gráfico tenga forma
     for t in db.execute("SELECT id FROM transactions").fetchall():
         d = datetime.now() - timedelta(days=random.randint(0, 13), hours=random.randint(0, 8))

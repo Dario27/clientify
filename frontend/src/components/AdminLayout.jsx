@@ -9,6 +9,7 @@ import PeopleAltRounded from '@mui/icons-material/PeopleAltRounded'
 import QrCodeScannerRounded from '@mui/icons-material/QrCodeScannerRounded'
 import NotificationsActiveRounded from '@mui/icons-material/NotificationsActiveRounded'
 import EventRounded from '@mui/icons-material/EventRounded'
+import InsightsRounded from '@mui/icons-material/InsightsRounded'
 import ContentCutRounded from '@mui/icons-material/ContentCutRounded'
 import RedeemRounded from '@mui/icons-material/RedeemRounded'
 import CardGiftcardRounded from '@mui/icons-material/CardGiftcardRounded'
@@ -28,6 +29,7 @@ const WIDTH = 248
 const NAV = [
   { to: '/admin', label: 'Resumen', icon: <DashboardRounded />, end: true },
   { to: '/admin/agenda', label: 'Agenda', icon: <EventRounded /> },
+  { to: '/admin/reportes', label: 'Reportes', icon: <InsightsRounded /> },
   { to: '/admin/escanear', label: 'Escanear', icon: <QrCodeScannerRounded /> },
   { to: '/admin/clientes', label: 'Clientes', icon: <PeopleAltRounded /> },
   { to: '/admin/reactivar', label: 'Reactivar', icon: <NotificationsActiveRounded /> },

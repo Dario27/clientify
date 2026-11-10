@@ -98,6 +98,8 @@ CREATE TABLE IF NOT EXISTS transactions (
     points INTEGER NOT NULL,
     description TEXT,
     created_by INTEGER REFERENCES users(id),
+    amount REAL,
+    concept TEXT,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS redemptions (
@@ -205,12 +207,13 @@ def all_settings():
     return s
 
 
-def add_points(db, user_id, points, type_, description, created_by=None):
-    """Única vía para mover puntos: actualiza saldo y deja rastro en el historial."""
+def add_points(db, user_id, points, type_, description, created_by=None, amount=None, concept=None):
+    """Única vía para mover puntos: actualiza saldo y deja rastro en el historial.
+    `amount` y `concept` (en dólares y texto) los llenan solo las visitas y alimentan los reportes."""
     db.execute("UPDATE users SET points = points + ? WHERE id=?", (points, user_id))
     db.execute(
-        "INSERT INTO transactions (user_id, type, points, description, created_by, created_at)"
-        " VALUES (?,?,?,?,?,?)", (user_id, type_, points, description, created_by, now()))
+        "INSERT INTO transactions (user_id, type, points, description, created_by, amount, concept, created_at)"
+        " VALUES (?,?,?,?,?,?,?,?)", (user_id, type_, points, description, created_by, amount, concept, now()))
 
 
 def add_months(d, months):
@@ -339,7 +342,7 @@ def add_visit(db, user_id, amount, concept, created_by):
     """Suma los puntos de una visita pagada. Devuelve los puntos (0 si el monto no alcanza ni para uno)."""
     pts = int(amount * setting_int("points_per_dollar"))
     if pts > 0:
-        add_points(db, user_id, pts, "visita", f"{concept} (${amount:.2f})", created_by)
+        add_points(db, user_id, pts, "visita", f"{concept} (${amount:.2f})", created_by, amount=amount, concept=concept)
         reward_referral(db, user_id, amount)
     return pts
 
@@ -400,6 +403,14 @@ def init_db():
         db.execute("ALTER TABLE users ADD COLUMN referral_rewarded INTEGER NOT NULL DEFAULT 0")
         # Los referidos anteriores ya cobraron sus bonos al registrarse: que no los cobren dos veces.
         db.execute("UPDATE users SET referral_rewarded=1 WHERE referred_by IS NOT NULL")
+    if "amount" not in [r[1] for r in db.execute("PRAGMA table_info(transactions)")]:
+        db.execute("ALTER TABLE transactions ADD COLUMN amount REAL")
+        db.execute("ALTER TABLE transactions ADD COLUMN concept TEXT")
+        # Las visitas anteriores guardaban el monto solo dentro del texto ("Corte ($10.00)"): se recupera para los reportes.
+        for t in db.execute("SELECT id, description FROM transactions WHERE type='visita'").fetchall():
+            hit = re.fullmatch(r"(.*) \(\$(\d+(?:\.\d+)?)\)", t["description"] or "")
+            if hit:
+                db.execute("UPDATE transactions SET concept=?, amount=? WHERE id=?", (hit.group(1), float(hit.group(2)), t["id"]))
     for k, v in DEFAULT_SETTINGS.items():
         db.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, v))
     if not db.execute("SELECT 1 FROM users WHERE role='admin'").fetchone():
@@ -1070,6 +1081,72 @@ def admin_settings_put():
         return err("La hora de cierre debe ser posterior a la de apertura.")
     db.commit()
     return jsonify(all_settings())
+
+
+# ---------------------------------------------------------------- reportes
+@app.get("/api/admin/reports")
+@admin_required
+def admin_reports():
+    """Ingresos, servicios más vendidos y retención de clientes. `days` es el período de los ingresos."""
+    days = request.args.get("days", 30, type=int)
+    if days not in (7, 30, 90, 365):
+        return err("Elige un período de 7, 30, 90 o 365 días.")
+    db = get_db()
+    today = date.today()
+    start = today - timedelta(days=days - 1)
+
+    def paid(since, until):  # visitas con monto entre dos fechas (incluidas)
+        return db.execute(
+            "SELECT user_id, substr(created_at,1,10) AS d, amount, concept FROM transactions"
+            " WHERE type='visita' AND amount IS NOT NULL AND substr(created_at,1,10) BETWEEN ? AND ?",
+            (since.isoformat(), until.isoformat())).fetchall()
+
+    def summary(rows):
+        income = sum(r["amount"] for r in rows)
+        return {"income": round(income, 2), "visits": len(rows), "clients": len({r["user_id"] for r in rows}),
+                "ticket": round(income / len(rows), 2) if rows else 0}
+
+    now_rows = paid(start, today)
+    daily = {(start + timedelta(days=i)).isoformat(): {"income": 0.0, "visits": 0} for i in range(days)}
+    services = {}
+    for r in now_rows:
+        daily[r["d"]]["income"] += r["amount"]
+        daily[r["d"]]["visits"] += 1
+        s = services.setdefault((r["concept"] or "Visita").strip().lower(), {"concept": (r["concept"] or "Visita").strip(), "visits": 0, "income": 0.0})
+        s["visits"] += 1
+        s["income"] += r["amount"]
+    total = sum(r["amount"] for r in now_rows)
+    top = sorted(services.values(), key=lambda s: s["income"], reverse=True)[:8]
+
+    # Retención: usa todas las visitas (con o sin monto) de cada cliente, de la primera a la última.
+    by_client = {}
+    for r in db.execute("SELECT user_id, substr(created_at,1,10) AS d FROM transactions WHERE type='visita'"
+                        " ORDER BY user_id, created_at"):
+        by_client.setdefault(r["user_id"], []).append(date.fromisoformat(r["d"]))
+    n_clients = db.execute("SELECT COUNT(*) FROM users WHERE role='client'").fetchone()[0]
+
+    def retention(window):  # de los que llegaron hace al menos `window` días, cuántos volvieron dentro de esos días
+        eligible = [v for v in by_client.values() if (today - v[0]).days >= window]
+        back = [v for v in eligible if len(v) > 1 and (v[1] - v[0]).days <= window]
+        return {"eligible": len(eligible), "rate": round(100 * len(back) / len(eligible), 1) if eligible else None}
+
+    gaps = [(b - a).days for v in by_client.values() for a, b in zip(v, v[1:])]
+    since_last = [(today - v[-1]).days for v in by_client.values()]
+    return jsonify({
+        "days": days, "from": start.isoformat(), "to": today.isoformat(),
+        "summary": {**summary(now_rows), "new_clients": sum(1 for v in by_client.values() if v[0] >= start),
+                    "previous": summary(paid(start - timedelta(days=days), start - timedelta(days=1)))},
+        "daily": [{"date": d, "income": round(v["income"], 2), "visits": v["visits"]} for d, v in daily.items()],
+        "services": [{**s, "income": round(s["income"], 2), "share": round(100 * s["income"] / total, 1)} for s in top],
+        "retention": {
+            "clients": n_clients, "with_visits": len(by_client), "never": n_clients - len(by_client),
+            "returning": sum(1 for v in by_client.values() if len(v) > 1),
+            "r30": retention(30), "r60": retention(60),
+            "avg_gap_days": round(sum(gaps) / len(gaps), 1) if gaps else None,
+            "last_visit": {"d30": sum(1 for x in since_last if x <= 30), "d60": sum(1 for x in since_last if 30 < x <= 60),
+                           "d90": sum(1 for x in since_last if 60 < x <= 90), "older": sum(1 for x in since_last if x > 90)},
+        },
+    })
 
 
 # ---------------------------------------------------------------- reactivación y cumpleaños
